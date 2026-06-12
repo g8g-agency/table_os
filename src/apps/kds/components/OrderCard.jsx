@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useKitchenMutations } from '../hooks/useKitchenMutations.js';
 import { submitMutation } from '../../../lib/apiClient.js';
+import { useKitchenOrdersProjection } from '../../../store/projections/kitchenOrdersProjection.js';
 import { useRuntimeStore } from '../../../store/useRuntimeStore.js';
+import { useRuntimeIdentityStore } from '../../../store/runtimeIdentityStore.js';
 import { useKdsIdentityStore } from '../../../store/kdsIdentityStore.js';
 
 // Re-export formatTime for any parent that needs it
@@ -12,6 +14,22 @@ export const formatTime = (s) =>
 
 /* ─── Status config: "Clinical Artisan" palette ─── */
 const getStatusConfig = (status, elapsed) => {
+  // ADD THESE TWO AT THE TOP:
+  if (status === 'cancelled') return {
+    borderColor: '#EF4444',
+    badgeBg: '#FEE2E2',
+    badgeColor: '#EF4444',
+    badgeText: '✕ CANCELLED',
+    pulse: false,
+  };
+  if (status === 'delivered') return {
+    borderColor: '#6C757D',
+    badgeBg: '#F3F4F6',
+    badgeColor: '#6C757D',
+    badgeText: '✓ SERVED',
+    pulse: false,
+  };
+
   // Late (over 11 min) — error state
   if ((status === 'preparing' || status === 'accepted') && elapsed >= 660) return {
     accentColor:  '#BA1A1A',
@@ -163,6 +181,12 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               kitchenDeviceId
             }
           });
+          const { branchId } = useRuntimeIdentityStore.getState();
+          const { stationId } = useKdsIdentityStore.getState();
+          
+          if (branchId) {
+            useKitchenOrdersProjection.getState().rebuild(branchId, stationId);
+          }
         } catch (err) {
           console.error('[KDS] Cancel error:', err);
         } finally {
@@ -304,15 +328,24 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               )}
             </>
           ) : (
-            <div style={{ 
-              fontSize: '10px', 
-              fontWeight: 700, 
-              color: '#6C757D',
-              textAlign: 'right',
-              lineHeight: 1.4
-            }}>
-              <div>{new Date(order.createdAt).toLocaleDateString()}</div>
-              <div>{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+              {/* Status badge */}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: cfg.badgeBg, color: cfg.badgeColor,
+                borderRadius: 6, padding: '3px 8px',
+                fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+              }}>
+                {cfg.badgeText}
+              </div>
+              {/* Timestamp */}
+              <div style={{
+                fontSize: '10px', fontWeight: 700,
+                color: '#6C757D', textAlign: 'right', lineHeight: 1.4,
+              }}>
+                <div>{new Date(order.createdAt).toLocaleDateString()}</div>
+                <div>{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
             </div>
           )}
         </div>
@@ -537,26 +570,6 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         {/* COOKING → BUMP + MARK READY */}
         {status === 'preparing' && (
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
-              disabled={isActionLoading}
-              className="cubic-transition"
-              style={{
-                flex:        1,
-                background:  '#FFFFFF',
-                color:       '#BA1A1A',
-                fontWeight:  900,
-                fontSize:    '10px',
-                textTransform:'uppercase',
-                letterSpacing:'0.12em',
-                padding:     '13px 8px',
-                borderRadius:'6px',
-                border:      '1px solid rgba(186,26,26,0.3)',
-                cursor:      'pointer',
-              }}
-            >
-              CANCEL
-            </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(); }}
               disabled={isActionLoading || isLocked}

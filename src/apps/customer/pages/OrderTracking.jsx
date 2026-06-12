@@ -14,11 +14,15 @@ import { useOrderStore } from '../../../store/index'
 const TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
 
 const STATUS_MAP = {
-  pending:  { step: 1 },
-  cooking:  { step: 2 },
-  ready:    { step: 3 },
-  served:   { step: 4 },
-  rejected: { step: 1 }
+  pending:    { step: 1 },
+  cooking:    { step: 2 },  // legacy
+  preparing:  { step: 2 },  // actual DB value
+  ready:      { step: 3 },
+  served:     { step: 4 },  // legacy
+  delivered:  { step: 4 },  // actual DB value
+  completed:  { step: 4 },
+  rejected:   { step: -1 },
+  cancelled:  { step: -1 },
 }
 
 const STEPS = [
@@ -70,16 +74,40 @@ export default function OrderTracking() {
     fetchOrder()
 
     // Bootstrap formal runtime infrastructure for realtime event routing
-    const BRANCH_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-    const topic = `tenant:${TENANT_ID}:branch:${BRANCH_ID}:operational`;
+    const { tenantId: sessionTenantId } = getQrSession();
+    const activeTenantId = sessionTenantId || TENANT_ID;
+    const BRANCH_ID = sessionStorage.getItem('qr_branch_id') 
+      || import.meta.env.VITE_BRANCH_ID 
+      || ''
+    const topic = `tenant:${activeTenantId}:branch:${BRANCH_ID}:operational`;
     const adapter = new SupabaseTransportAdapter(supabase);
     runtime.bootstrap('customer_order_tracking', resolvedOrderId, adapter, topic);
+
+    // Direct Supabase realtime subscription for instant order updates
+    const channel = supabase.channel(`customer_order_${resolvedOrderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${resolvedOrderId}`
+        },
+        (payload) => {
+          console.debug('[OrderTracking] Realtime update:', payload.new)
+          if (payload.new) {
+            useOrderStore.getState().replaceOrderProjection(payload.new)
+          }
+        }
+      )
+      .subscribe()
 
     // Fallback polling — degraded mode recovery until projection store is wired
     const fallbackPoll = setInterval(fetchOrder, 10000)
 
     return () => {
       clearInterval(fallbackPoll)
+      supabase.removeChannel(channel)
       runtime.transport.suspend()
     }
   }, [resolvedOrderId])
@@ -136,7 +164,11 @@ export default function OrderTracking() {
     );
   }
 
-  const stepIndex = { pending: 1, cooking: 2, ready: 3, served: 4, rejected: -1, payment_pending: 2, paid: 3 }
+  const stepIndex = { 
+    pending: 1, cooking: 2, preparing: 2, ready: 3, served: 4, delivered: 4, completed: 4, 
+    rejected: -1, cancelled: -1, 
+    payment_pending: 2, paid: 3 
+  }
   const currentStep = stepIndex[orderStatus] ?? 1
 
   // ETA calculation — item-count-based
@@ -290,29 +322,30 @@ export default function OrderTracking() {
         
         {/* 2. STATUS BAR */}
         <div style={{
-          background: orderStatus === 'rejected' ? '#FEF2F2' : '#F0FDF4',
-          border: orderStatus === 'rejected' ? '1px solid #FECACA' : '1px solid #BBF7D0',
+          background: ['rejected', 'cancelled'].includes(orderStatus) ? '#FEF2F2' : '#F0FDF4',
+          border: ['rejected', 'cancelled'].includes(orderStatus) ? '1px solid #FECACA' : '1px solid #BBF7D0',
           borderRadius: 12, margin: 16, padding: '10px 16px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 10, height: 10, background: orderStatus === 'rejected' ? '#EF4444' : orderStatus === 'ready' ? '#22C55E' : '#E31E24', borderRadius: '50%' }} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: orderStatus === 'rejected' ? '#DC2626' : '#16A34A' }}>
-              {orderStatus === 'rejected' ? '✕ Order was rejected by kitchen'
-               : orderStatus === 'served'  ? 'Enjoy your meal!'
+            <div style={{ width: 10, height: 10, background: ['rejected', 'cancelled'].includes(orderStatus) ? '#EF4444' : orderStatus === 'ready' ? '#22C55E' : '#E31E24', borderRadius: '50%' }} />
+            <span style={{ fontSize: 14, fontWeight: 600, color: ['rejected', 'cancelled'].includes(orderStatus) ? '#DC2626' : '#16A34A' }}>
+              {orderStatus === 'cancelled' ? '✕ Your order was cancelled'
+               : orderStatus === 'rejected' ? '✕ Order was rejected by kitchen'
+               : ['served', 'delivered', 'completed'].includes(orderStatus) ? 'Enjoy your meal!'
                : orderStatus === 'paid'    ? 'Payment received ✅ Thank you!'
                : orderStatus === 'ready'   ? 'Your order is ready! ✅'
-               : orderStatus === 'cooking' ? 'Kitchen is cooking your order 🍳'
+               : ['cooking', 'preparing'].includes(orderStatus) ? 'Kitchen is preparing your order 🍳'
                : orderStatus === 'payment_pending' ? 'Payment requested — waiter is on the way 🙏'
                : '🟡 Waiting for kitchen to confirm'}
             </span>
           </div>
-          {orderStatus !== 'rejected' && orderStatus !== 'served' && (
+          {!['rejected', 'cancelled', 'served', 'delivered', 'completed'].includes(orderStatus) && (
             <div style={{ background: '#DCFCE7', borderRadius: 999, padding: '2px 10px', color: '#16A34A', fontSize: 12, fontWeight: 500 }}>
               {orderStatus === 'ready' ? 'Ready to serve! ✅'
-               : orderStatus === 'cooking' && etaMinutes > 1 ? `~${etaMinutes} min remaining`
-               : orderStatus === 'cooking' ? 'Almost ready! 🍳'
+               : ['cooking', 'preparing'].includes(orderStatus) && etaMinutes > 1 ? `~${etaMinutes} min remaining`
+               : ['cooking', 'preparing'].includes(orderStatus) ? 'Almost ready! 🍳'
                : 'Waiting for kitchen...'}
             </div>
           )}
@@ -327,8 +360,9 @@ export default function OrderTracking() {
         </div>
 
         {/* 4. VERTICAL STEPPER */}
-        <div style={{ background: 'white', borderRadius: 16, margin: '0 16px 16px', padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        {!['rejected', 'cancelled'].includes(orderStatus) && (
+          <div style={{ background: 'white', borderRadius: 16, margin: '0 16px 16px', padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
             {STEPS?.map((s, idx) => {
               const isPast = s.step < currentStep
               const isCurrent = s.step === currentStep
@@ -376,12 +410,14 @@ export default function OrderTracking() {
                 </div>
               )
             })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* 5. YOUR ITEMS CARD */}
-        <div style={{ background: 'white', borderRadius: 16, margin: '0 16px 16px', padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1C1E', margin: '0 0 16px' }}>Your Items</h3>
+        {!['rejected', 'cancelled'].includes(orderStatus) && (
+          <div style={{ background: 'white', borderRadius: 16, margin: '0 16px 16px', padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1C1E', margin: '0 0 16px' }}>Your Items</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {order?.order_items?.map(item => {
               const itemSt = getItemStatus(item)
@@ -412,8 +448,9 @@ export default function OrderTracking() {
                 </div>
               )
             })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* 6. BILL SUMMARY + PAY BUTTON */}
         {(orderStatus === 'pending' || orderStatus === 'cooking' || orderStatus === 'ready') && (
@@ -552,7 +589,7 @@ export default function OrderTracking() {
       <BottomNav />
 
       {/* THANK YOU SCREEN — shown when order is served */}
-      {orderStatus === 'served' && (
+      {['served', 'delivered', 'completed'].includes(orderStatus) && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 100,
           minHeight: '100vh',

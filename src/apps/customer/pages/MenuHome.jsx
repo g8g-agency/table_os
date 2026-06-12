@@ -21,8 +21,12 @@ import { motion } from 'framer-motion'
 import { getTableNum } from '../utils/tableNum'
 import { getQrSession } from '../utils/qrSession'
 
-const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111'
-const DEMO_BRANCH_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+const DEMO_TENANT_ID = sessionStorage.getItem('qr_tenant_id') 
+  || import.meta.env.VITE_TENANT_ID 
+  || ''
+const DEMO_BRANCH_ID = sessionStorage.getItem('qr_branch_id') 
+  || import.meta.env.VITE_BRANCH_ID 
+  || ''
 const STICKY_TRIGGER = 280
 const NAV_SCROLL_THRESHOLD = 8
 

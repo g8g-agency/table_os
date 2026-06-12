@@ -41,7 +41,7 @@ export class GuestSessionService {
     }
 
     // 3. No active session. Construct new session with deterministic expiration (e.g. 4 hours from now)
-    const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     logger.info({ tableId: dto.table_id }, 'Creating new table-bound guest session');
     
     return GuestSessionRepository.createSession({

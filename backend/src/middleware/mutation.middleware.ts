@@ -17,7 +17,7 @@ export const MutationEnvelopeSchema = z.object({
   tenant_id: z.string().uuid().optional(),
   branch_id: z.string().uuid().optional(),
   client_timestamp: z.string().datetime().optional(),
-  idempotency_key: z.string().uuid(),
+  idempotency_key: z.string().min(1).max(255).regex(/^[A-Za-z0-9_-]+$/),
   expected_cart_revision: z.number().int().nonnegative().optional(),
   payload: z.any(),
 });

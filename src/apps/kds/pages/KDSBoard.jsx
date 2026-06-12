@@ -69,7 +69,8 @@ const KDSBoard = () => {
   const prevOrderCount                    = useRef(0);
 
   /* ── Dev fallback (inline) ─────────────────────── */
-  const effectiveTenantId = tenantId || import.meta.env.VITE_TENANT_ID;
+  const runtimeTenantId   = useRuntimeAuthStore(s => s.tenantId) || localStorage.getItem('kds_tenant_id');
+  const effectiveTenantId = runtimeTenantId || tenantId || import.meta.env.VITE_TENANT_ID;
   const effectiveUser     = user || (effectiveTenantId ? { name: 'KDS Terminal', role: 'kitchen' } : null);
 
   /* ── Initial fetch + Realtime subscription ──────── */
@@ -103,12 +104,12 @@ const KDSBoard = () => {
       ]).then(() => setRealtimeStatus('connected'));
     } else {
       if (historyOrders.length === 0) setRealtimeStatus('connecting');
-      fetchHistory().then(() => setRealtimeStatus('connected'));
+      fetchHistory(historyFilter, branchId).then(() => setRealtimeStatus('connected'));
     }
 
     // No probe needed, ProjectionCoordinator + WebSocketRuntime handles lifecycle
     
-  }, [tenantId, branchId, stationId, activeTab, rebuildOrders, rebuildMetrics, fetchHistory]);
+  }, [tenantId, branchId, stationId, activeTab, rebuildOrders, rebuildMetrics, fetchHistory, historyFilter]);
 
   /* ── Realtime subscription is now handled globally by WebSocketRuntime ── */
 
@@ -120,7 +121,7 @@ const KDSBoard = () => {
           rebuildOrders(branchId, stationId);
           rebuildMetrics(branchId, stationId);
         } else {
-          fetchHistory();
+          fetchHistory(historyFilter, branchId);
         }
       }
     };
@@ -506,7 +507,7 @@ const KDSBoard = () => {
                       key={f}
                       onClick={() => {
                         setHistoryFilter(f);
-                        fetchHistory(f);
+                        fetchHistory(f, branchId);
                       }}
                       style={{
                         padding: '6px 12px',

@@ -141,7 +141,7 @@ export async function createSession(payload: {
   expires_at: string;
 }): Promise<QrSession> {
   const { data, error } = await supabaseAdmin
-    .from('qr_sessions')
+    .from('guest_sessions')
     .insert({
       tenant_id: payload.tenant_id,
       branch_id: payload.branch_id,
@@ -163,7 +163,7 @@ export async function createSession(payload: {
 
 export async function findSessionByToken(sessionToken: string): Promise<QrSession | null> {
   const { data, error } = await supabaseAdmin
-    .from('qr_sessions')
+    .from('guest_sessions')
     .select('*')
     .eq('session_token', sessionToken)
     .maybeSingle();
@@ -177,7 +177,7 @@ export async function findActiveSessionByTable(
   tableId: string,
 ): Promise<QrSession | null> {
   const { data, error } = await supabaseAdmin
-    .from('qr_sessions')
+    .from('guest_sessions')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('table_id', tableId)
@@ -195,7 +195,7 @@ export async function updateSessionStatus(
   updatedFields: Record<string, unknown> = {},
 ): Promise<QrSession | null> {
   const { data, error } = await supabaseAdmin
-    .from('qr_sessions')
+    .from('guest_sessions')
     .update({ status, ...updatedFields, updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
     .eq('id', sessionId)
@@ -208,7 +208,7 @@ export async function updateSessionStatus(
 
 export async function touchSession(sessionId: string): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('qr_sessions')
+    .from('guest_sessions')
     .update({ last_activity_at: new Date().toISOString() })
     .eq('id', sessionId);
 

@@ -33,6 +33,7 @@ export class GuestSessionRepository {
         session_token: crypto.randomUUID(),
         guest_identifier: dto.customer_identity_id,
         is_active: true,
+        expires_at: dto.expires_at,
         session_data: {
           device_fingerprints: [dto.device_fingerprint],
           expires_at: dto.expires_at,

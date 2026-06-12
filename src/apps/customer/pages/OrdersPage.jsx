@@ -23,74 +23,78 @@ export default function OrdersPage() {
   const [errorState, setErrorState] = useState(null)
 
   useEffect(() => {
-    if (!session.name) {
-      setLoading(false)
-      return
+    if (!session.name || !tableId || !activeTenantId) {
+      setLoading(false);
+      return;
     }
 
+    let cancelled = false;
+
     const fetchOrders = async () => {
+      if (cancelled) return;
       try {
-        // Step 1: fetch orders without join to bypass PGRST200
+        const sessionStart = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
         const { data: fetchedOrders, error: ordersError } = await supabase
           .from('orders')
           .select('*')
           .eq('tenant_id', activeTenantId)
           .eq('table_id', tableId)
-          .in('status', ['pending', 'accepted', 'preparing', 'ready', 'delivered'])
+          .in('status', ['pending', 'accepted', 'preparing', 'ready', 'delivered', 'completed', 'cancelled'])
+          .gte('created_at', sessionStart)
           .order('created_at', { ascending: false })
           .limit(20);
 
+        if (cancelled) return;
         if (ordersError) throw ordersError;
 
-        if (!fetchedOrders || fetchedOrders.length === 0) {
+        if (fetchedOrders && fetchedOrders.length > 0) {
+          const orderIds = fetchedOrders.map(o => o.id);
+          const { data: itemsData } = await supabase
+            .from('order_items')
+            .select('*')
+            .in('order_id', orderIds);
+
+          if (cancelled) return;
+          const itemsByOrder = (itemsData || []).reduce((acc, item) => {
+            acc[item.order_id] = acc[item.order_id] || [];
+            acc[item.order_id].push(item);
+            return acc;
+          }, {});
+
+          setOrders(fetchedOrders.map(o => ({
+            ...o,
+            order_items: itemsByOrder[o.id] || []
+          })));
+        } else {
           setOrders([]);
-          setLoading(false);
-          return;
         }
-
-        // Step 2: fetch items for those orders
-        const orderIds = fetchedOrders.map(o => o.id);
-        const { data: items, error: itemsError } = await supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
-
-        if (itemsError) throw itemsError;
-
-        // Step 3: manual merge
-        const ordersWithItems = fetchedOrders.map(order => ({
-          ...order,
-          order_items: (items || []).filter(i => i.order_id === order.id)
-        }));
-
-        setOrders(ordersWithItems);
       } catch (err) {
-        console.error('[OrdersPage] Runtime Failure:', err);
-        setErrorState(err.message || 'Failed to load your orders.')
+        console.error('[OrdersPage] fetchOrders error:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }
+    };
 
-    fetchOrders()
+    fetchOrders();
 
-    // Ensure the router is started (using a generic or hardcoded branch ID for customer demo)
-    const BRANCH_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-    const topic = `tenant:${TENANT_ID}:branch:${BRANCH_ID}:operational`;
-    const adapter = new SupabaseTransportAdapter(supabase);
-    runtime.bootstrap('customer_orders_page', session.sessionId || 'anonymous_session', adapter, topic);
-
-    // A real implementation would subscribe to projectionCoordinator's store
-    // For this migration, we'll assume fetchOrders is re-triggered on relevant events, 
-    // or we poll periodically as a fallback, or projection updates a global customer store.
-    // Here we set an interval as a fallback atomic rebuild
-    const fallbackPoll = setInterval(fetchOrders, 10000)
+    // Realtime subscription instead of polling
+    const channel = supabase
+      .channel(`orders_page_${tableId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `table_id=eq.${tableId}`,
+      }, () => {
+        fetchOrders(); // refetch on any change
+      })
+      .subscribe();
 
     return () => {
-      clearInterval(fallbackPoll)
-      runtime.transport.suspend()
-    }
-  }, [tableId, activeTenantId, session.checkedInAt, session.name, session.sessionId])
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [tableId, activeTenantId, session.name]);
 
   if (!session.name) {
     return (
@@ -270,6 +274,15 @@ function OrderCard({ order }) {
             <span style={{ fontSize: 18, fontWeight: 800, color: '#E31E24' }}>₹{order.total_amount}</span>
             <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#D1D5DB' }} />
             <span style={{ fontSize: 13, color: '#6C757D', fontWeight: 500 }}>{order.order_items?.length || 0} Items</span>
+          </div>
+        </div>
+        
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+            {new Date(order.created_at).toLocaleDateString()}
+          </span>
+          <div style={{ fontSize: 12, color: '#6C757D', fontWeight: 600 }}>
+            {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
         
