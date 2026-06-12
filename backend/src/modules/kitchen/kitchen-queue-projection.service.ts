@@ -220,12 +220,21 @@ export class KitchenQueueProjectionService {
       let overdueCount = 0;
       let totalCompletedTimeSeconds = 0;
       let completedCount = 0;
+      let totalTicketsToday = 0;
       const now = new Date().getTime();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayStartMs = todayStart.getTime();
 
       for (const t of tickets) {
-        if (t.status !== 'delivered' && t.status !== 'ready') {
+        const createdMs = new Date(t.created_at).getTime();
+        if (createdMs >= todayStartMs && t.status !== 'cancelled') {
+          totalTicketsToday++;
+        }
+
+        if (t.status !== 'delivered' && t.status !== 'ready' && t.status !== 'cancelled' && t.status !== 'completed') {
           activeCount++;
-          const elapsed = Math.floor((now - new Date(t.created_at).getTime()) / 1000);
+          const elapsed = Math.floor((now - createdMs) / 1000);
           const limit = t.estimated_prep_seconds || 600;
           if (elapsed > limit) {
             overdueCount++;
@@ -244,6 +253,7 @@ export class KitchenQueueProjectionService {
       const slaComplianceRate = completedCount > 0 ? 100 : 0; // Standard metrics mock or query state
 
       return {
+        totalTicketsToday,
         activeTickets: activeCount,
         overdueTickets: overdueCount,
         averageTurnaroundSeconds: avgTurnaroundSeconds,

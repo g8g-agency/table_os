@@ -15,11 +15,12 @@ import { RealtimePublisherService } from '../realtime/realtime-publisher.service
 import { logger } from '../../shared/utils/logger';
 
 const VALID_KITCHEN_TRANSITIONS: Record<kitchenRepo.KitchenOrderStatus, kitchenRepo.KitchenOrderStatus[]> = {
-  pending: ['accepted', 'preparing', 'ready', 'delivered'],
-  accepted: ['preparing', 'ready', 'delivered'],
-  preparing: ['ready', 'delivered'],
-  ready: ['delivered'],
+  pending: ['accepted', 'preparing', 'ready', 'delivered', 'cancelled'],
+  accepted: ['preparing', 'ready', 'delivered', 'cancelled'],
+  preparing: ['ready', 'delivered', 'cancelled'],
+  ready: ['delivered', 'cancelled'],
   delivered: [],
+  cancelled: [],
 };
 
 export async function routeOrderToKitchen(tenantId: string, orderId: string): Promise<kitchenRepo.KitchenOrder> {
@@ -197,25 +198,53 @@ export async function transitionKitchenOrderStatus(params: {
     throw new AppError('Kitchen ticket was modified by another request. Reload and retry.', 409, ErrorCode.CONFLICT);
   }
 
-  // 4. Synchronize status with parent Order
+  // 4. Synchronize status with parent Order (walk through required intermediates)
   const order = await ordersRepo.getOrderById(tenantId, ticket.order_id);
   if (order) {
-    // Map kitchen status directly to order status
-    let orderTargetStatus: ordersRepo.OrderStatus | null = null;
-    if (targetStatus === 'accepted') orderTargetStatus = 'accepted';
-    else if (targetStatus === 'preparing') orderTargetStatus = 'preparing';
-    else if (targetStatus === 'ready') orderTargetStatus = 'ready';
-    else if (targetStatus === 'delivered') orderTargetStatus = 'delivered';
+    const STATUS_WALK: Record<string, ordersRepo.OrderStatus[]> = {
+      accepted:  ['accepted'],
+      preparing: ['accepted', 'preparing'],
+      ready:     ['accepted', 'preparing', 'ready'],
+      delivered: ['accepted', 'preparing', 'ready', 'delivered'],
+    };
 
-    if (orderTargetStatus && order.status !== orderTargetStatus) {
-      await transitionOrderStatus({
-        tenantId,
-        orderId: ticket.order_id,
-        targetStatus: orderTargetStatus,
-        versionNum: order.version_num,
-        userId,
-        reason: `Synchronized with KDS station ticket state transition.`,
-      });
+    const steps = STATUS_WALK[targetStatus];
+    if (steps) {
+      let currentOrderStatus = order.status;
+      let currentVersionNum = order.version_num;
+
+      // Do not attempt to walk a parent order that is in a terminal state
+      const TERMINAL_STATES = ['cancelled', 'rejected', 'completed', 'refunded'];
+      if (TERMINAL_STATES.includes(currentOrderStatus)) {
+        return updatedTicket; // Skip syncing to parent
+      }
+
+      for (const step of steps) {
+        // Skip states the parent order has already passed through
+        const ORDER_RANK: Record<string, number> = {
+          pending: 0, accepted: 1, preparing: 2,
+          ready: 3, delivered: 4, completed: 5,
+        };
+        
+        const currentRank = ORDER_RANK[currentOrderStatus];
+        const stepRank = ORDER_RANK[step] ?? 0;
+
+        if (currentRank === undefined || currentRank >= stepRank) {
+          continue;
+        }
+
+        const updated = await transitionOrderStatus({
+          tenantId,
+          orderId: ticket.order_id,
+          targetStatus: step,
+          versionNum: currentVersionNum,
+          userId,
+          reason: `Synchronized with KDS station ticket state transition.`,
+        });
+
+        currentOrderStatus = step;
+        currentVersionNum = updated.version_num;
+      }
     }
   }
 
@@ -229,6 +258,57 @@ export async function getKitchenOrderTicket(tenantId: string, id: string): Promi
   }
   const items = await kitchenRepo.getKitchenOrderItems(tenantId, id);
   return { ...ticket, items };
+}
+
+export async function handleParentOrderCancelled(tenantId: string, orderId: string, userId?: string): Promise<void> {
+  const { data: ticket, error } = await supabaseAdmin
+    .from('kitchen_orders')
+    .select('id, status, version_num')
+    .eq('tenant_id', tenantId)
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  if (error) {
+    logger.error({ error: error.message, orderId }, '[KitchenService] Error fetching kitchen order for cancellation');
+    return;
+  }
+
+  if (ticket && ticket.status !== 'delivered' && ticket.status !== 'cancelled') {
+    logger.info({ ticketId: ticket.id, orderId }, '[KitchenService] Cascading parent cancellation to kitchen ticket');
+    await kitchenRepo.updateKitchenOrderStatus(
+      tenantId,
+      ticket.id,
+      'cancelled',
+      ticket.version_num,
+      userId
+    );
+    
+    // Broadcast realtime event for kitchen cancellation
+    try {
+      const { data: fullTicket } = await supabaseAdmin.from('kitchen_orders').select('branch_id').eq('id', ticket.id).single();
+      if (fullTicket) {
+        const topic = RealtimePublisherService.getBranchTopic(tenantId, fullTicket.branch_id);
+        const broadcastChannel = supabaseAdmin.channel(topic);
+        await broadcastChannel.send({
+          type: 'broadcast',
+          event: 'KDS_TICKET_CANCELLED',
+          payload: {
+            branchId: fullTicket.branch_id,
+            eventType: 'KDS_TICKET_CANCELLED',
+            timestamp: new Date().toISOString(),
+            payload: {
+              kitchenOrderId: ticket.id,
+              orderId,
+              status: 'cancelled',
+            },
+          },
+        });
+        await supabaseAdmin.removeChannel(broadcastChannel);
+      }
+    } catch (realtimeErr: any) {
+      logger.error({ realtimeErr: realtimeErr.message }, '[KitchenService] Realtime broadcast cancellation error.');
+    }
+  }
 }
 
 export async function getKitchenQueue(

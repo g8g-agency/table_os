@@ -7,7 +7,7 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
 
-export type KitchenOrderStatus = 'pending' | 'accepted' | 'preparing' | 'ready' | 'delivered';
+export type KitchenOrderStatus = 'pending' | 'accepted' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
 
 export interface KitchenStation {
   id: string;

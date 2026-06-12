@@ -333,7 +333,7 @@ export async function getOperationalMetrics(req: any, res: Response, next: any):
 
     // Map to the format the frontend expects
     const formattedMetrics = {
-      totalOrdersToday: metrics?.activeTickets || 0,
+      totalOrdersToday: metrics?.totalTicketsToday || 0,
       averagePrepTimeSeconds: metrics?.averageTurnaroundSeconds || 0,
       delayedOrdersCount: metrics?.overdueTickets || 0,
       activeTicketsCount: metrics?.activeTickets || 0,

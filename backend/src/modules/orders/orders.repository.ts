@@ -82,13 +82,19 @@ export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'c
 export async function getOrderById(tenantId: string, id: string): Promise<Order | null> {
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*')
+    .select('*, items:order_items(*)')
     .eq('tenant_id', tenantId)
     .eq('id', id)
     .maybeSingle();
 
   if (error) {
     throw new AppError(`Failed to fetch order: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  }
+
+  if (data) {
+    const items = data.items || [];
+    const total_amount = items.reduce((sum: number, item: any) => sum + ((item.unit_price || 0) * (item.qty || 0)), 0);
+    data.total_amount = total_amount;
   }
 
   return data as Order | null;
@@ -119,7 +125,7 @@ export async function listOrdersByBranch(
 
   let query = supabaseAdmin
     .from('orders')
-    .select('*')
+    .select('*, items:order_items(*)')
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .gte('created_at', sevenDaysAgo.toISOString());
@@ -134,7 +140,13 @@ export async function listOrdersByBranch(
     throw new AppError(`Failed to list branch orders: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
 
-  return data as Order[];
+  const mappedData = data.map((order: any) => {
+    const items = order.items || [];
+    const total_amount = items.reduce((sum: number, item: any) => sum + ((item.unit_price || 0) * (item.qty || 0)), 0);
+    return { ...order, total_amount };
+  });
+
+  return mappedData as Order[];
 }
 
 export async function updateOrderStatus(

@@ -15,6 +15,7 @@ import { BranchMenuResolutionService } from '../overrides/services/branch-menu-r
 import { ProjectionService } from '../projection/projection.service';
 import { WebSocketManager } from '../transport/websocket.manager';
 import * as cartService from '../cart/cart.service';
+import * as kitchenService from '../kitchen/kitchen.service';
 import { logger } from '../../shared/utils/logger';
 
 export async function createDirectOrder(params: {
@@ -380,6 +381,15 @@ export async function transitionOrderStatus(params: {
     changed_by: userId,
     reason: reason || `State transitioned from ${order.status} to ${targetStatus}.`,
   });
+
+  // 4.5. Cascade cancellation to KDS Kitchen Ticket to prevent ghost tickets
+  if (targetStatus === 'cancelled') {
+    // We execute this synchronously (or concurrently) to ensure the KDS state is updated
+    // For pilot stabilization, we direct-invoke the service. Event-driven refactor scheduled post-pilot.
+    await kitchenService.handleParentOrderCancelled(tenantId, orderId, userId).catch(err => {
+      logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to cascade cancellation to kitchen ticket');
+    });
+  }
 
   // 5. Dispatch Realtime Projection Update
   await ProjectionService.dispatchProjectionUpdate({
