@@ -91,12 +91,13 @@ export async function bootstrap(
     log.info({ userId }, `[Bootstrap] Started at ${startMs}`);
 
     // ── 1. Load admin profile (already validated by authenticate) ──────────
-    const profile = await findAdminProfileById(userId);
-    const profileMs = Date.now() - startMs;
-    log.info({ userId, elapsed: profileMs }, `[Bootstrap] Admin profile resolved: ${profileMs}ms`);
+    // The 'authenticate' middleware already loads role, tenantId, etc. into req.context.
+    // We skip the redundant 'findAdminProfileById' network call.
+    const role = req.context.role;
+    const tenantId = req.context.tenantId;
 
-    if (!profile) {
-      log.warn({ userId }, '[Bootstrap] No admin profile found — rejecting');
+    if (!role) {
+      log.warn({ userId }, '[Bootstrap] No admin role found in context — rejecting');
       res.status(403).json({
         success: false,
         error: { code: 'NO_ADMIN_PROFILE', message: 'No admin profile found for this user.' },
@@ -104,10 +105,9 @@ export async function bootstrap(
       return;
     }
 
-    log.info({ userId, tenantId: profile.tenant_id, role: profile.role }, '[Bootstrap] Profile loaded');
+    log.info({ userId, tenantId, role }, '[Bootstrap] Profile context loaded');
 
     // ── 2. Resolve tenant ──────────────────────────────────────────────────
-    const tenantId = profile.tenant_id;
     const hasTenant = Boolean(tenantId);
 
     let tenant: BootstrapResponse['data']['tenant'] = null;
@@ -199,10 +199,12 @@ export async function bootstrap(
     const requiresOnboarding = hasTenant ? 
       (!onboarding.is_complete && !onboarding.is_skipped && tenant?.status !== 'active') : false;
     const subscriptionExpired = Boolean(tenant && tenant.status === 'suspended');
-    const accountSuspended = !profile.is_active || profile.is_locked;
+    
+    // Account active/locked status is already enforced by the 'authenticate' middleware
+    const accountSuspended = false;
 
     const flags = {
-      must_change_password: profile.must_change_password ?? false,
+      must_change_password: req.context.must_change_password ?? false,
       subscription_expired: subscriptionExpired,
       account_suspended: accountSuspended,
       onboarding_required: requiresOnboarding,
@@ -217,10 +219,10 @@ export async function bootstrap(
         requires_onboarding: requiresOnboarding,
         bootstrap_version: BOOTSTRAP_VERSION,
         user: {
-          id: profile.id,
-          full_name: profile.full_name,
-          role: profile.role,
-          must_change_password: profile.must_change_password ?? false,
+          id: userId,
+          full_name: req.context.full_name,
+          role: role,
+          must_change_password: req.context.must_change_password ?? false,
         },
         tenant,
         branches,
