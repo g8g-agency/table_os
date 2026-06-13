@@ -152,7 +152,7 @@ export class WebSocketManager {
   /**
    * Handles incoming client frames (SYNC, ACK).
    */
-  private handleClientFrame(_ws: WebSocket, identity: ConnectionIdentity, data: Buffer): void {
+  private handleClientFrame(ws: WebSocket, identity: ConnectionIdentity, data: Buffer): void {
     try {
       const frame = JSON.parse(data.toString());
       
@@ -162,6 +162,12 @@ export class WebSocketManager {
         // Currently we do not implement the full replay engine, but we log it.
       } else if (frame.type === 'ACK') {
         // Acknowledge delivery logic (optional, for observability)
+      } else if (frame.type === 'ping') {
+        // Application-level heartbeat from Flutter client — respond with pong
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'pong' }));
+        }
+        (ws as any).isAlive = true;
       } else {
         logger.warn({ identity, frame }, '[Transport] Unknown frame received');
       }
