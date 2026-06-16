@@ -52,8 +52,8 @@ export interface QrSession {
   updated_at: string;
 }
 
-// Session TTL in seconds (30 minutes default)
-export const QR_SESSION_TTL_SECONDS = 30 * 60;
+// Session TTL in seconds (12 hours for pilot)
+export const QR_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 // QR signed payload structure (embedded in QR code URL)
 export interface QrSignedPayload {

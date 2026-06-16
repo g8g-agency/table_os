@@ -23,7 +23,7 @@ export const Constants = {
     TENANT_USERS: 'tenant_users',
     STAFF: 'staff',
     DEVICES: 'devices',
-    QR_SESSIONS: 'qr_sessions',
+    QR_SESSIONS: 'guest_sessions',
     DOMAIN_EVENTS: 'domain_events',
   },
   

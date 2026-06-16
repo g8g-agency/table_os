@@ -11,33 +11,55 @@ import type { Permission, Role } from '../types/rbac.types';
 import { ROLES } from '../types/rbac.types';
 import { logger } from '../shared/utils/logger';
 
-// ─── Resolve effective permissions ──────────────────────────
-export async function resolvePermissions(
-  userId:   string,
-  tenantId: string | null
-): Promise<Set<Permission>> {
-  // 1. Cache hit
-  const cached = permissionCache.get(userId, tenantId);
+// ─── Static Role Permission Cache ────────────────────────────
+const rolePermissionCache = new Map<Role, Set<Permission>>();
+
+// ─── Resolve effective permissions by Role ───────────────────
+export async function resolvePermissionsByRole(role: Role): Promise<Set<Permission>> {
+  if (role === ROLES.SUPER_ADMIN) {
+    // Super admins might have a static 'all' permission or we fetch it.
+    // In our schema, role_permissions usually contains mapping for SUPER_ADMIN too.
+  }
+
+  const cached = rolePermissionCache.get(role);
   if (cached) return cached;
 
-  // 2. Call DB RPC (uses security definer — bypasses RLS)
-  const { data, error } = await supabaseAdmin.rpc('get_user_permissions', {
-    p_user_id:   userId,
-    p_tenant_id: tenantId,
-  });
+  const { data, error } = await supabaseAdmin
+    .from('role_permissions')
+    .select('permission_key')
+    .ilike('role', role);
 
   if (error) {
-    logger.error({ err: error, userId }, '[RBAC] resolvePermissions failed — returning empty set');
-    return new Set(); // fail closed
+    logger.error({ err: error, role }, '[RBAC] resolvePermissionsByRole failed — returning empty set');
+    return new Set();
   }
 
   const permissions = new Set<Permission>(
     (data as Array<{ permission_key: string }>).map((r) => r.permission_key as Permission)
   );
 
-  // 3. Write to cache
-  permissionCache.set(userId, tenantId, permissions);
+  rolePermissionCache.set(role, permissions);
+  return permissions;
+}
 
+// ─── Resolve effective permissions (Legacy) ──────────────────
+export async function resolvePermissions(
+  userId:   string,
+  tenantId: string | null
+): Promise<Set<Permission>> {
+  // 1. Cache hit for specific user
+  const cached = permissionCache.get(userId, tenantId);
+  if (cached) return cached;
+
+  // 2. We must resolve their role first
+  const role = await resolveRole(userId, tenantId);
+  if (!role) return new Set();
+
+  // 3. Get permissions for role
+  const permissions = await resolvePermissionsByRole(role);
+  
+  // 4. Cache for the user
+  permissionCache.set(userId, tenantId, permissions);
   return permissions;
 }
 

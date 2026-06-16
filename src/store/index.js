@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase.js'
 import { useAuthStore } from './authStore.js'
+import { useRuntimeIdentityStore } from './runtimeIdentityStore.js'
 
 export { useAuthStore, useAuthStore as useAdminStore }
 
@@ -39,7 +40,7 @@ export const useOrderStore = create((set, get) => ({
     const nextOrders = s.liveOrders.map(o => {
       if (o.id === order.id) {
         exists = true;
-        return order;
+        return { ...o, ...order };
       }
       return o;
     });
@@ -56,6 +57,69 @@ export const useOrderStore = create((set, get) => ({
 
   // For Admin/KDS history
   setHistoryOrders: (orders) => set({ historyOrders: orders, isLoading: false }),
+
+  fetchHistory: async (filter = 'day', branchId) => {
+    console.log('[fetchHistory] CALLED with filter:', filter, 'branchId:', branchId);
+    if (!branchId) {
+      console.log('[fetchHistory] aborting — missing branchId');
+      return;
+    }
+
+    set({ isLoading: true });
+
+    const now = new Date();
+    let fromDate = null;
+    if (filter === 'day') {
+      fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    } else if (filter === 'week') {
+      fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    } else if (filter === 'month') {
+      fromDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    }
+
+    // Step 1: fetch orders
+    const query = supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('branch_id', branchId)
+      .in('status', ['delivered', 'cancelled'])
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (fromDate) query.gte('created_at', fromDate);
+
+    const { data, error } = await query;
+    console.log('[fetchHistory] data:', data?.length, 'error:', error);
+    if (error || !data) {
+      set({ isLoading: false });
+      return;
+    }
+
+    // Step 2: batch fetch table numbers
+    const tableIds = [...new Set(data.map(o => o.table_id).filter(Boolean))];
+    let tableMap = {};
+    if (tableIds.length > 0) {
+      const { data: tables, error: tablesError } = await supabase
+        .from('tables')
+        .select('id, table_number, display_name')
+        .in('id', tableIds);
+      
+      console.log('[fetchHistory] tables fetched:', tables?.length, 'error:', tablesError);
+
+      tableMap = Object.fromEntries(
+        (tables || []).map(t => [t.id, t.table_number ?? t.display_name ?? '?'])
+      );
+    }
+
+    // Step 3: normalize
+    const normalized = data.map(row => ({
+      ...normalizeOrder(row),
+      tableNum: tableMap[row.table_id] ?? row.order_number ?? '?',
+      items: (row.order_items || []).map(normalizeOrderItem),
+    }));
+
+    set({ historyOrders: normalized, isLoading: false });
+  },
 }))
 
 
@@ -248,7 +312,7 @@ function normalizeOrderItem(it) {
     id: it.id,
     menuItemId: it.menu_item_id || null,
     name: it.name || 'Unknown Item',
-    qty: it.qty || 1,
+    qty: it.qty || it.quantity || 1,
     station: it.station || '',
     allergen: it.allergen || null,
     note: it.note || '',
@@ -262,7 +326,7 @@ function normalizeOrder(row) {
   return {
     id: row.id,
     tableId: row.table_id || row.tableId || null,
-    tableNum: row.table_num || row.tableNum || '?',
+    tableNum: row.tables?.table_number || row.tables?.display_name || row.table_number || row.tableNum || row.order_number || '?',
     status: row.status || 'pending',
     createdAt: row.created_at || null,
     note: row.note || '',

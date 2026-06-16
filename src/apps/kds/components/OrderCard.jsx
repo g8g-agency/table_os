@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useKitchenMutations } from '../hooks/useKitchenMutations.js';
 import { submitMutation } from '../../../lib/apiClient.js';
+import { useKitchenOrdersProjection } from '../../../store/projections/kitchenOrdersProjection.js';
 import { useRuntimeStore } from '../../../store/useRuntimeStore.js';
+import { useRuntimeIdentityStore } from '../../../store/runtimeIdentityStore.js';
 import { useKdsIdentityStore } from '../../../store/kdsIdentityStore.js';
 
 // Re-export formatTime for any parent that needs it
@@ -12,6 +14,22 @@ export const formatTime = (s) =>
 
 /* ─── Status config: "Clinical Artisan" palette ─── */
 const getStatusConfig = (status, elapsed) => {
+  // ADD THESE TWO AT THE TOP:
+  if (status === 'cancelled') return {
+    borderColor: '#EF4444',
+    badgeBg: '#FEE2E2',
+    badgeColor: '#EF4444',
+    badgeText: '✕ CANCELLED',
+    pulse: false,
+  };
+  if (status === 'delivered') return {
+    borderColor: '#6C757D',
+    badgeBg: '#F3F4F6',
+    badgeColor: '#6C757D',
+    badgeText: '✓ SERVED',
+    pulse: false,
+  };
+
   // Late (over 11 min) — error state
   if ((status === 'preparing' || status === 'accepted') && elapsed >= 660) return {
     accentColor:  '#BA1A1A',
@@ -85,7 +103,7 @@ const chipStyle = (key) => {
 ══════════════════════════════════════════════════ */
 const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
   const { ticketId, orderId, tableNumber, items = [], status, createdAt, isPendingOperationalConfirmation } = order;
-  const id = ticketId || orderId || order.id || '';
+  const id = order.id || ticketId || orderId || '';
   const tableNum = tableNumber || order.tableNum || 'T0';
   const { markPreparing, markReady, bumpOrder, recallTicket } = useKitchenMutations();
 
@@ -94,8 +112,8 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
   const isStuck = false;
 
   const { isHealthy, isRecovering, isDegraded } = useRuntimeStore();
-  const isTransportDegraded = isDegraded || isRecovering || !isHealthy;
-  const isLocked = isPendingOperationalConfirmation || isTransportDegraded;
+  const isTransportDegraded = isDegraded || isRecovering;
+  const isLocked = isPendingOperationalConfirmation || (isTransportDegraded && !isHealthy);
 
   // Default: all items are selected (kitchen accepts the full order unless they deselect)
   const [selectedItems, setSelectedItems]     = useState(() => items.map(i => i.id));
@@ -163,6 +181,12 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               kitchenDeviceId
             }
           });
+          const { branchId } = useRuntimeIdentityStore.getState();
+          const { stationId } = useKdsIdentityStore.getState();
+          
+          if (branchId) {
+            useKitchenOrdersProjection.getState().rebuild(branchId, stationId);
+          }
         } catch (err) {
           console.error('[KDS] Cancel error:', err);
         } finally {
@@ -304,15 +328,24 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               )}
             </>
           ) : (
-            <div style={{ 
-              fontSize: '10px', 
-              fontWeight: 700, 
-              color: '#6C757D',
-              textAlign: 'right',
-              lineHeight: 1.4
-            }}>
-              <div>{new Date(order.createdAt).toLocaleDateString()}</div>
-              <div>{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+              {/* Status badge */}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: cfg.badgeBg, color: cfg.badgeColor,
+                borderRadius: 6, padding: '3px 8px',
+                fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+              }}>
+                {cfg.badgeText}
+              </div>
+              {/* Timestamp */}
+              <div style={{
+                fontSize: '10px', fontWeight: 700,
+                color: '#6C757D', textAlign: 'right', lineHeight: 1.4,
+              }}>
+                <div>{new Date(order.createdAt).toLocaleDateString()}</div>
+                <div>{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
             </div>
           )}
         </div>
@@ -345,7 +378,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
           /* dim unselected pending items, rejected items, done cooking items */
           const rowOpacity = (isPending && !isSelected) ? 0.35
                            : isRejected ? 0.4
-                           : (isItemDone && status === 'cooking') ? 0.6
+                           : (isItemDone && status === 'preparing') ? 0.6
                            : 1;
 
           return (
@@ -353,7 +386,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               key={item.id || idx}
               onClick={() => {
                 if (isPending) toggleSelection(item.id);
-                else if (status === 'cooking' && !isRejected && !isItemDone) {
+                else if (status === 'preparing' && !isRejected && !isItemDone) {
                   // If we wanted to allow ticking in cooking, we could.
                   // But user said "should always be marked tick ... and cant be unticked"
                   // So we effectively disable interaction here.
@@ -385,7 +418,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
                   className="material-symbols-outlined"
                   style={{
                     fontSize: '20px',
-                    color:    status === 'cooking' ? '#2D5FA3' : '#006948',
+                    color:    status === 'preparing' ? '#2D5FA3' : '#006948',
                     flexShrink: 0,
                     fontVariationSettings: "'FILL' 1",
                   }}
@@ -421,8 +454,8 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
                     fontWeight:     700,
                     letterSpacing:  '-0.01em',
                     lineHeight:     1.3,
-                    color:          isItemDone && status !== 'cooking' ? '#6C757D' : '#1A1C1E',
-                    textDecoration: isItemDone && status === 'cooking' ? 'line-through' : 'none',
+                    color:          isItemDone && status !== 'preparing' ? '#6C757D' : '#1A1C1E',
+                    textDecoration: isItemDone && status === 'preparing' ? 'line-through' : 'none',
                     transition:     'color 0.2s cubic-bezier(0.2,0,0,1)',
                   }}>
                     {item.qty > 1 && (
@@ -535,28 +568,8 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         )}
 
         {/* COOKING → BUMP + MARK READY */}
-        {status === 'cooking' && (
+        {status === 'preparing' && (
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
-              disabled={isActionLoading}
-              className="cubic-transition"
-              style={{
-                flex:        1,
-                background:  '#FFFFFF',
-                color:       '#BA1A1A',
-                fontWeight:  900,
-                fontSize:    '10px',
-                textTransform:'uppercase',
-                letterSpacing:'0.12em',
-                padding:     '13px 8px',
-                borderRadius:'6px',
-                border:      '1px solid rgba(186,26,26,0.3)',
-                cursor:      'pointer',
-              }}
-            >
-              CANCEL
-            </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(); }}
               disabled={isActionLoading || isLocked}

@@ -1,11 +1,12 @@
 import { RuntimeObservabilityLayer } from '../observability/RuntimeObservabilityLayer';
 import { resolveApiBaseUrl } from '../../lib/resolveApiBaseUrl';
 import { RuntimeTransportManager } from '../transport/RuntimeTransportManager';
+import { useRuntimeAuthStore } from '../../store/runtimeAuthStore';
 
 export interface MutationRequest {
   mutation_id: string;
   payload: Record<string, any>;
-  idempotency_key?: string; 
+  idempotency_key?: string;
   expected_cart_revision?: number;
 }
 
@@ -15,7 +16,7 @@ export interface MutationIdentity {
   surface_id: string; // e.g. "pos_terminal_1" or "qr_table_T03"
   session_id: string; // The session-bound identity
   mutation_sequence: number; // Monotonic counter resetting per session
-  idempotency_key: string; 
+  idempotency_key: string;
   request_id: string; // Trace ID for observability
   status: MutationStatus;
 }
@@ -25,11 +26,11 @@ export class MutationGateway {
   private transportManager: RuntimeTransportManager;
   private currentSessionId: string | null = null;
   private sequenceCounter: number = 0;
-  
+
   // Internal mutation state ledger
   private mutationLedger: Map<string, MutationIdentity> = new Map();
   private stuckTimers: Map<string, NodeJS.Timeout> = new Map();
-  
+
   // E.g., API_BASE_URL
   private apiBaseUrl: string = resolveApiBaseUrl();
 
@@ -66,6 +67,20 @@ export class MutationGateway {
     const idempotencyKey = request.idempotency_key || crypto.randomUUID();
 
     const qrToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qr_session_token') : null;
+
+    // Get tenant and branch from runtime auth store
+    const authState = useRuntimeAuthStore.getState();
+    const tenantId = authState.tenantId || null;
+    const branchId = authState.branchId || null;
+
+    console.log('[MutationGateway] Auth state for envelope:', {
+      hasTenantId: !!tenantId,
+      hasBranchId: !!branchId,
+      hasRuntimeToken: !!authState.runtimeToken,
+      tenantId,
+      branchId
+    });
+
     const identity: MutationIdentity = {
       surface_id: surfaceId,
       session_id: this.currentSessionId || qrToken || 'anonymous_session',
@@ -81,6 +96,8 @@ export class MutationGateway {
     const envelope = {
       mutation_id: request.mutation_id,
       ...identity,
+      tenant_id: tenantId,
+      branch_id: branchId,
       runtime_version: 2, // Signifying formal runtime struct
       client_timestamp: new Date().toISOString(),
       expected_cart_revision: request.expected_cart_revision,
@@ -97,19 +114,32 @@ export class MutationGateway {
     headers.set('X-Request-Id', requestId);
     headers.set('X-Idempotency-Key', idempotencyKey);
 
-    // Optional: add runtime token here
-    const token = localStorage.getItem('supabase.auth.token');
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
+    // Get runtime token from auth store (works for KDS, Staff, POS)
+    const runtimeToken = useRuntimeAuthStore.getState().runtimeToken;
+    if (runtimeToken) {
+      headers.set('Authorization', `Bearer ${runtimeToken}`);
+      console.debug('[MutationGateway] Added runtime token to headers');
     }
 
-    if (qrToken) {
+    // Fallback: Check for QR token (customer orders)
+    if (!runtimeToken && qrToken) {
       headers.set('x-qr-session-token', qrToken);
+      console.debug('[MutationGateway] Added QR session token to headers');
+    }
+
+    // Debug: Log if no auth found
+    if (!runtimeToken && !qrToken) {
+      console.warn('[MutationGateway] No authentication token found!', {
+        runtimeTokenExists: !!runtimeToken,
+        qrTokenExists: !!qrToken,
+        surfaceId
+      });
     }
 
     try {
       console.debug(`[MutationGateway] Submitting mutation ${request.mutation_id} (Seq: ${this.sequenceCounter})`);
-      
+      console.log('[MutationGateway] Full envelope:', JSON.stringify(envelope, null, 2));
+
       const response = await fetch(`${this.apiBaseUrl}${endpoint}`, {
         method: 'POST',
         headers,
@@ -126,7 +156,7 @@ export class MutationGateway {
 
       identity.status = 'ACKNOWLEDGED'; // Waiting for confirmation via projection sync
       this.observability.recordMutationSuccess(identity);
-      
+
       // Notify Transport Manager of successful heartbeat/api contact
       this.transportManager.recordApiSuccess();
 
@@ -155,13 +185,13 @@ export class MutationGateway {
       if (identity && identity.status === 'PENDING') {
         identity.status = 'STALLED';
         console.warn(`[MutationGateway] Mutation ${idempotencyKey} STALLED. Transitioning to RECOVERING.`);
-        
+
         // After stalled, try recovering
         setTimeout(() => {
           if (identity.status === 'STALLED') {
             identity.status = 'RECOVERING';
             console.info(`[MutationGateway] Mutation ${idempotencyKey} RECOVERING. Attempting background re-flight...`);
-            
+
             // In a real system, you'd re-flight the payload here, or check transport state.
             // If it still fails, escalate to FAILED.
             setTimeout(() => {

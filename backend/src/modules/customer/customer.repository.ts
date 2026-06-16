@@ -8,7 +8,7 @@ export class CustomerRepository {
     const startTime = Date.now();
 
     const timeThreshold = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-    const allowedStatuses = ['pending', 'accepted', 'preparing', 'ready'];
+    const allowedStatuses = ['pending', 'accepted', 'preparing', 'ready', 'delivered', 'completed', 'cancelled'];
 
     logger.info({ orderId, tenantId, tableId }, '[CustomerRepository] Fetching guest order');
 

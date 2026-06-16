@@ -138,7 +138,7 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
 
     // QR sessions set source to 'qr_scan', staff app sets source to 'staff_pos'
     const source = req.qrSession ? 'qr_scan' : 'staff_pos';
-    const branchId = req.qrSession?.branchId || req.user?.branch_id;
+    const branchId = req.qrSession?.branchId || req.context?.branchIds?.[0];
     if (!branchId) {
       throw new AppError('Missing branch context.', 400, ErrorCode.BAD_REQUEST);
     }
@@ -150,7 +150,7 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
       tenantId,
       branchId,
       tableId,
-      sessionId: req.qrSession?.id || req.user?.id,
+      sessionId: req.qrSession?.id || req.context?.id,
       items,
     });
 
@@ -158,12 +158,12 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
       tenantId,
       branchId,
       tableId,
-      sessionId: req.qrSession?.id || req.user?.id, // Use user ID as session for staff
+      sessionId: req.qrSession?.id || req.context?.id, // Use user ID as session for staff
       items,
       idempotencyKey: ctx.idempotency_key,
       orderNotes,
       source,
-      userId: req.user?.id,
+      userId: req.context?.id,
     });
 
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
@@ -177,7 +177,7 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
 export async function getOrderDetails(req: any, res: Response, next: any): Promise<void> {
   try {
     const { id } = req.params;
-    const tenantId = req.headers['x-tenant-id'] as string || req.qrSession?.tenant_id || req.user?.tenant_id;
+    const tenantId = req.headers['x-tenant-id'] as string || req.qrSession?.tenant_id || req.context?.tenantId;
 
     if (!tenantId) {
       throw new AppError('Missing tenant identification context.', 400, ErrorCode.BAD_REQUEST);
@@ -197,7 +197,7 @@ export async function getOrderDetails(req: any, res: Response, next: any): Promi
 export async function getPendingAlerts(req: any, res: Response, next: any): Promise<void> {
   try {
     const { branchId } = z.object({ branchId: z.string().uuid() }).parse(req.query);
-    const tenantId = req.context?.tenant_id;
+    const tenantId = req.context?.tenantId;
     const staffId = req.context?.id;
     if (!tenantId || !staffId) throw new AppError('Unauthorized', 401, ErrorCode.UNAUTHORIZED);
 
@@ -216,7 +216,7 @@ export async function transitionStatus(req: any, res: Response, next: any): Prom
       throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
     }
 
-    const tenantId = req.headers['x-tenant-id'] as string || req.user?.tenant_id;
+    const tenantId = req.headers['x-tenant-id'] as string || req.context?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant identification context.', 400, ErrorCode.BAD_REQUEST);
     }
@@ -233,7 +233,7 @@ export async function transitionStatus(req: any, res: Response, next: any): Prom
       orderId: id,
       targetStatus,
       versionNum,
-      userId: req.user?.id,
+      userId: req.context?.id,
       reason,
       additionalFields,
     });
@@ -250,7 +250,7 @@ export async function transitionStatus(req: any, res: Response, next: any): Prom
 export async function getAvailableStaff(req: any, res: Response, next: any): Promise<void> {
   try {
     const { branchId } = z.object({ branchId: z.string().uuid() }).parse(req.query);
-    const tenantId = req.context?.tenant_id;
+    const tenantId = req.context?.tenantId;
     if (!tenantId) throw new AppError('Unauthorized', 401, ErrorCode.UNAUTHORIZED);
 
     // Fetch online/active staff members in this branch (those with active presence or recent activity)
@@ -301,7 +301,7 @@ export async function listBranchOrders(req: any, res: Response, next: any): Prom
       throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
     }
 
-    const tenantId = req.headers['x-tenant-id'] as string || req.user?.tenant_id;
+    const tenantId = req.headers['x-tenant-id'] as string || req.context?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant identification context.', 400, ErrorCode.BAD_REQUEST);
     }

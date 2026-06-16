@@ -56,7 +56,7 @@ export async function getPublicStaff(req: Request, res: Response, next: NextFunc
 
     const { data, error } = await supabaseAdmin
       .from('staff')
-      .select('id, first_name, last_name, role, pin_code_hash as pin, status, employee_id, profile_completed, profile_completed_at, profile_setup_step, developer_mode_enabled')
+      .select('id, first_name, last_name, role, pin_code_hash as pin, status, employee_id, profile_completed, profile_completed_at, profile_setup_step, developer_mode_enabled, department, gender, mobile_number, address, emergency_contact_name, emergency_contact_number, dob')
       .eq('tenant_id', orgId)
       .eq('branch_id', branchId)
       .eq('status', 'active');

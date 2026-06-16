@@ -5,6 +5,8 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import jwt from 'jsonwebtoken';
+import jwksClient from 'jwks-rsa';
 import { supabaseAdmin } from '../../../config/supabase';
 import {
   findAdminProfileById,
@@ -40,6 +42,32 @@ import type {
 import { env } from '../../../config/env';
 import { logger as log } from '../../../shared/utils/logger';
 import { resolvePermissions } from '../../../utils/permission-checker';
+
+// At module level — initialize once
+const jwks = jwksClient({
+  jwksUri: `${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`,
+  cache: true,
+  cacheMaxAge: 86400000, // 24 hours — keys rarely rotate
+});
+
+async function getSigningKey(kid: string): Promise<string> {
+  const key = await jwks.getSigningKey(kid);
+  return key.getPublicKey();
+}
+
+export async function verifySupabaseToken(token: string) {
+  const decoded = jwt.decode(token, { complete: true });
+  if (!decoded || typeof decoded === 'string') {
+    throw new AuthenticationError('Invalid token format');
+  }
+  
+  const kid = decoded.header.kid;
+  if (!kid) throw new AuthenticationError('Missing key ID in token');
+
+  const publicKey = await getSigningKey(kid);
+  
+  return jwt.verify(token, publicKey, { algorithms: ['ES256'] }) as jwt.JwtPayload;
+}
 
 // ─── Login ────────────────────────────────────────────────────
 
@@ -373,49 +401,41 @@ export async function completePasswordReset(
  * NEVER trust JWT claims alone — always verify against DB.
  */
 export async function validateAccessToken(accessToken: string): Promise<TokenValidationResult> {
-  // 1. Verify the token with Supabase Auth
-  const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-
-  if (error || !data.user) {
-    return { valid: false, error: error?.message ?? 'Invalid token' };
+  // 1. Verify the token locally using the Supabase JWKS (ES256)
+  let decodedToken: any;
+  try {
+    decodedToken = await verifySupabaseToken(accessToken);
+  } catch (err: any) {
+    return { valid: false, error: err?.message ?? 'Invalid token signature' };
   }
 
-  // 2. Load the admin profile using the SECURITY DEFINER RPC to avoid
-  //    PostgREST RLS infinite recursion on admin_profiles table.
-  //    The profile id == Supabase auth user id.
-  const { data: profileData, error: profileError } = await supabaseAdmin
-    .rpc('get_admin_profile_by_email', { p_email: data.user.email!.toLowerCase() });
-
-  const profile = (profileData as Record<string, unknown>[] | null)?.[0] ?? null;
-
-  if (profileError || !profile) {
-    return { valid: false, error: 'Admin profile not found' };
+  if (!decodedToken || !decodedToken.sub || !decodedToken.email) {
+    return { valid: false, error: 'Token missing required claims' };
   }
 
-  const tenantId = profile.tenant_id as string | null;
-  if (!tenantId && profile.role !== 'SUPER_ADMIN') {
+  // 2. Extract context from JWT app_metadata (trusting claims to save DB round trip)
+  // Suspended/locked accounts will not be blocked until the token expires (up to 1 hour).
+  const appMeta = decodedToken.app_metadata || {};
+  const userMeta = decodedToken.user_metadata || {};
+  
+  const tenantId = appMeta.tenant_id as string | null;
+  const role = appMeta.rbac_role as Role;
+  
+  if (!tenantId && role !== 'SUPER_ADMIN') {
     return { valid: false, error: 'User has no tenant assigned. Contact support.' };
   }
 
-  if (!profile.is_active) {
-    return { valid: false, error: 'Account is disabled' };
-  }
-
-  if (profile.is_locked) {
-    return { valid: false, error: 'Account is locked' };
-  }
-
   // Branch IDs come from JWT app_metadata (set during login and kept up to date)
-  const branchIds = (data.user.app_metadata?.branch_ids as string[]) ?? [];
+  const branchIds = (appMeta.branch_ids as string[]) ?? [];
 
   return {
     valid:                true,
-    user_id:              data.user.id,
-    email:                data.user.email,
-    role:                 profile.role as Role,
+    user_id:              decodedToken.sub,
+    email:                decodedToken.email,
+    role:                 role,
     tenant_id:            tenantId,
     branch_ids:           branchIds,
-    full_name:            profile.full_name as string | undefined,
-    must_change_password: Boolean(profile.must_change_password),
+    full_name:            userMeta.full_name as string | undefined,
+    must_change_password: Boolean(userMeta.must_change_password),
   };
 }

@@ -26,6 +26,7 @@ export default function CartDrawer({ open, onClose }) {
   const clear      = useCartStore(s => s.clear)
   const [isPlacing, setIsPlacing] = useState(false)
   const [note,      setNote]      = useState('')
+  const [errorMsg,  setErrorMsg]  = useState(null)
   const { recommendations, isLoading } = useCartRecommendations(cartItems)
 
   const subtotal   = cartItems.reduce((a, i) => a + ((i.unit_price || i.price || 0) * i.qty), 0)
@@ -67,6 +68,7 @@ export default function CartDrawer({ open, onClose }) {
   const handlePlaceOrder = async () => {
     if (cartItems.length === 0 || isPlacing) return
     setIsPlacing(true)
+    setErrorMsg(null)
     try {
       const { tenantId, branchId, tableId } = getQrSession()
       const resolvedTableNum = resolveTableNum()
@@ -82,6 +84,9 @@ export default function CartDrawer({ open, onClose }) {
       const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
 
       const qrToken = sessionStorage.getItem('qr_session_token') || ''
+      console.log('[DEBUG] qrToken from sessionStorage:', sessionStorage.getItem('qr_session_token'));
+      console.log('[DEBUG] all sessionStorage keys:', Object.keys(sessionStorage));
+
       const rawRes = await fetchPublicApi('/public/orders', {
         method: 'POST',
         headers: {
@@ -98,7 +103,22 @@ export default function CartDrawer({ open, onClose }) {
 
       console.log('[CartDrawer] raw response:', JSON.stringify(res));
 
-      if (res.success === false) {
+      if (!rawRes.ok || res.success === false) {
+        // ── Session expired: clear stale token so re-scan works cleanly ──
+        if (
+          rawRes.status === 401 ||
+          res.error?.code === 'UNAUTHORIZED' ||
+          res.error?.message?.toLowerCase().includes('session expired') ||
+          res.error?.message?.toLowerCase().includes('not found') ||
+          res.error?.message?.toLowerCase().includes('not active')
+        ) {
+          sessionStorage.removeItem('qr_session_token');
+          sessionStorage.removeItem('qr_session');
+          setErrorMsg('Your session has expired. Please scan the QR code on your table again.');
+          setIsPlacing(false);
+          return;
+        }
+
         if (res.error?.code === 'CART_ALREADY_CHECKED_OUT' || res.error?.message?.includes('already checked out or locked')) {
           clear()
           onClose()
@@ -110,21 +130,30 @@ export default function CartDrawer({ open, onClose }) {
         throw error
       }
 
-      // Important: Only clear the cart if the order was successfully created and an ID is returned
-      const orderId = res?.order?.id || res?.data?.order?.id || res?.id || res?.data?.id;
-
-      if (orderId) {
+      if (res?.success === true) {
         clear()
         onClose()
-        navigate(`/menu/confirmed/${orderId}`, { state: { orderId } })
-      } else {
-        throw new Error('Order placed but no ID returned.')
+        const orderData = res?.order || res?.data?.order || res?.data || res;
+        const orderId = orderData?.id || res?.id;
+        navigate(orderId ? `/menu/confirmed/${orderId}` : '/menu/orders', {
+          state: orderId ? {
+            orderId,
+            orderNumber: orderData?.order_number,
+            tableId: orderData?.table_id,
+            tableName: resolvedTableNum,
+            subtotal: subtotal,
+            tax: 0,
+            total: subtotal,
+            items: cartItems,
+          } : undefined
+        })
+        return;
       }
 
     } catch (err) {
       console.error('[CartDrawer] placeOrder failed:', err)
       // CART_ALREADY_CHECKED_OUT is now handled directly in the response parsing block above
-      alert(err.message || 'Could not place order. Please try again.')
+      setErrorMsg(err.message || 'Could not place order. Please try again.')
     } finally {
       setIsPlacing(false)
     }
@@ -171,6 +200,60 @@ export default function CartDrawer({ open, onClose }) {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0 20px' }}>
+              {errorMsg && (() => {
+                const isSessionError = 
+                  errorMsg.includes('session') || 
+                  errorMsg.includes('expired') ||
+                  errorMsg.includes('UNAUTHORIZED');
+
+                return (
+                  <div style={{
+                    background: '#1C1C1C',
+                    border: '1px solid #F85149',
+                    borderRadius: 10,
+                    padding: '14px 16px',
+                    marginBottom: 16,
+                    margin: '0 20px 16px',
+                    textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>
+                      {isSessionError ? '⏱️' : '⚠️'}
+                    </div>
+                    <p style={{ color: '#F85149', fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                      {isSessionError ? 'Session Expired' : 'Order Failed'}
+                    </p>
+                    <p style={{ color: '#8B949E', fontSize: 12, marginBottom: 12 }}>
+                      {isSessionError 
+                        ? 'Your session has expired. Please scan the QR code again.'
+                        : 'Something went wrong. Please try again or ask staff for help.'
+                      }
+                    </p>
+                    {isSessionError && (
+                      <button
+                        onClick={() => {
+                          sessionStorage.clear();
+                          // Redirect back to the QR landing — preserves tenantId/branchId from URL
+                          const params = new URLSearchParams(window.location.search);
+                          window.location.href = `/menu/browse?tenantId=${params.get('tenantId')}&branchId=${params.get('branchId')}`;
+                        }}
+                        style={{
+                          background: '#E3B341',
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '10px 20px',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          width: '100%',
+                        }}
+                      >
+                        🔄 Refresh Session
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
               {cartItems.length === 0 ? (
                 <div style={{ padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                   <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>

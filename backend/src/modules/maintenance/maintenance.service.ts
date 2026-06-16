@@ -63,7 +63,7 @@ export async function cleanupExpiredQRSessions(tenantId: string): Promise<number
 
   // Retrieve expired active sessions
   const { data: expiredSessions, error: fetchError } = await supabaseAdmin
-    .from('qr_sessions')
+    .from('guest_sessions')
     .select('id, version_num')
     .eq('tenant_id', tenantId)
     .eq('status', 'active')
@@ -82,7 +82,7 @@ export async function cleanupExpiredQRSessions(tenantId: string): Promise<number
   // Transition each session to 'expired' under OCC protection
   for (const session of expiredSessions) {
     const { error: updateError } = await supabaseAdmin
-      .from('qr_sessions')
+      .from('guest_sessions')
       .update({
         status: 'expired',
         expired_at: now,

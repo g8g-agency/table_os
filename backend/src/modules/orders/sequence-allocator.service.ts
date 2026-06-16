@@ -7,7 +7,7 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
 
-export type SequenceType = 'orders' | 'invoices' | 'kitchen_orders' | 'qr_sessions' | 'tables';
+export type SequenceType = 'orders' | 'invoices' | 'kitchen_orders' | 'guest_sessions' | 'tables';
 
 /**
  * Atomically allocates the next sequential index for a branch.

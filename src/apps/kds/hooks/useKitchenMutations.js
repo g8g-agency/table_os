@@ -1,9 +1,14 @@
 import { submitMutation } from '../../../lib/apiClient.js';
 import { useKdsIdentityStore } from '../../../store/kdsIdentityStore.js';
+import { runtime } from '../../../runtime/index.ts';
+import { useKitchenOrdersProjection } from '../../../store/projections/kitchenOrdersProjection.js';
+import { useRuntimeIdentityStore } from '../../../store/runtimeIdentityStore.js';
 
 // State machine validation
 const VALID_TRANSITIONS = {
   'NEW': ['PREPARING', 'REJECTED'],
+  'PENDING': ['PREPARING', 'REJECTED', 'ACCEPTED'],
+  'ACCEPTED': ['PREPARING', 'READY'],
   'PREPARING': ['READY'],
   'READY': ['EXPO_COMPLETE'],
   'EXPO_COMPLETE': ['SERVED'],
@@ -16,6 +21,16 @@ function isValidTransition(currentStatus, targetStatus) {
 }
 
 export function useKitchenMutations() {
+  // The kitchen projection uses ticketId/orderId, not order.id
+  const resolveId = (order) => order.ticketId || order.orderId || order.id || '';
+
+  const triggerProjectionRebuild = () => {
+    const { branchId } = useRuntimeIdentityStore.getState();
+    const { stationId } = useKdsIdentityStore.getState();
+    useKitchenOrdersProjection.getState().rebuild(branchId, stationId);
+    runtime.projection.handleInvalidation('orders').catch(() => {});
+  };
+
   return {
     markPreparing: async (order) => {
       if (!isValidTransition(order.status?.toUpperCase(), 'PREPARING') && !order.isNew) {
@@ -23,17 +38,27 @@ export function useKitchenMutations() {
       }
       
       const { runtimeSessionId, kitchenDeviceId } = useKdsIdentityStore.getState();
+      const id = resolveId(order);
       
-      return submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_MARK_PREPARING_${order.id}_${Date.now()}`,
-        idempotency_key: `KITCHEN_MARK_PREPARING_${order.id}`,
+      console.log('[KDS] markPreparing called with:', {
+        orderId: id,
+        orderStatus: order.status,
+        runtimeSessionId,
+        kitchenDeviceId
+      });
+      
+      const result = await submitMutation('/api/v1/mutations', {
+        mutation_id: `KITCHEN_MARK_PREPARING_${id}_${Date.now()}`,
+        idempotency_key: `KITCHEN_MARK_PREPARING_${id}`,
         payload: {
           type: 'KITCHEN_MARK_PREPARING',
-          orderId: order.id,
+          orderId: id,
           runtimeSessionId,
           kitchenDeviceId
         }
       });
+      triggerProjectionRebuild();
+      return result;
     },
     
     markReady: async (order) => {
@@ -42,48 +67,58 @@ export function useKitchenMutations() {
       }
       
       const { runtimeSessionId, kitchenDeviceId } = useKdsIdentityStore.getState();
+      const id = resolveId(order);
       
-      return submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_MARK_READY_${order.id}_${Date.now()}`,
-        idempotency_key: `KITCHEN_MARK_READY_${order.id}`,
+      const result = await submitMutation('/api/v1/mutations', {
+        mutation_id: `KITCHEN_MARK_READY_${id}_${Date.now()}`,
+        idempotency_key: `KITCHEN_MARK_READY_${id}`,
         payload: {
           type: 'KITCHEN_MARK_READY',
-          orderId: order.id,
+          orderId: id,
           runtimeSessionId,
           kitchenDeviceId
         }
       });
+      triggerProjectionRebuild();
+      return result;
     },
     
     bumpOrder: async (order) => {
       const { runtimeSessionId, kitchenDeviceId, stationId } = useKdsIdentityStore.getState();
+      const id = resolveId(order);
       
-      return submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_BUMP_TICKET_${order.id}_${stationId}_${Date.now()}`,
-        idempotency_key: `KITCHEN_BUMP_TICKET_${order.id}_${stationId}`,
+      const result = await submitMutation('/api/v1/mutations', {
+        mutation_id: `KITCHEN_BUMP_TICKET_${id}_${stationId}_${Date.now()}`,
+        idempotency_key: `KITCHEN_BUMP_TICKET_${id}_${stationId}`,
         payload: {
           type: 'KITCHEN_BUMP_TICKET',
-          orderId: order.id,
+          orderId: id,
           stationId,
           runtimeSessionId,
           kitchenDeviceId
         }
       });
+      triggerProjectionRebuild();
+      return result;
     },
 
     recallTicket: async (order) => {
       const { runtimeSessionId, kitchenDeviceId } = useKdsIdentityStore.getState();
+      const id = resolveId(order);
       
-      return submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_RECALL_TICKET_${order.id}_${Date.now()}`,
-        idempotency_key: `KITCHEN_RECALL_TICKET_${order.id}`,
+      const result = await submitMutation('/api/v1/mutations', {
+        mutation_id: `KITCHEN_RECALL_TICKET_${id}_${Date.now()}`,
+        idempotency_key: `KITCHEN_RECALL_TICKET_${id}`,
         payload: {
           type: 'KITCHEN_RECALL_TICKET',
-          orderId: order.id,
+          orderId: id,
           runtimeSessionId,
           kitchenDeviceId
         }
       });
+      triggerProjectionRebuild();
+      return result;
     },
   };
 }
+

@@ -2,6 +2,7 @@ import { RuntimeDomain } from '../realtime/RealtimeEventRouter';
 import { RuntimeObservabilityLayer } from '../observability/RuntimeObservabilityLayer';
 import { fetchWithRuntime } from '../../lib/apiClient'; // Temporary until pure adapter is used for fetches too
 import { useOrderStore } from '../../store/index';
+import { useRuntimeAuthStore } from '../../store/runtimeAuthStore';
 
 interface ActiveRebuild {
   promise: Promise<void>;
@@ -102,15 +103,25 @@ export class ProjectionCoordinator {
   // --- Domain Specific Rebuilds ---
 
   private async rebuildOrderProjection(epoch: number, signal: AbortSignal, orderId?: string): Promise<number> {
+    // Guard: ensure session is authenticated and has branch context before fetching
+    const authState = useRuntimeAuthStore.getState();
+    const token = authState.runtimeToken;
+    const branchId = authState.branchId;
+    
+    if (!token || !branchId) {
+      console.warn('[ProjectionCoordinator] No auth token or branchId, skipping rebuild for orders');
+      return this.localWatermarks.get('orders') || 0;
+    }
+
     // 1. Authoritative Fetch
-    const endpoint = orderId ? `/api/v1/orders/${orderId}` : `/api/v1/orders`;
+    const endpoint = orderId ? `/api/v1/orders/${orderId}` : `/api/v1/orders?branchId=${branchId}`;
     
     // We bypass fetchWithRuntime here if we strictly want signal support, 
     // but assuming standard fetch api, we can pass it via options.
     const response = await fetch(import.meta.env.VITE_API_URL + endpoint, {
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+        'Authorization': `Bearer ${token}`
       },
       signal
     });
@@ -135,12 +146,22 @@ export class ProjectionCoordinator {
     }
 
     // 3. Atomic Normalized Replacement
+    const orderPayload = data?.data?.order ?? data?.order;
+    const ordersPayload = data?.data?.orders ?? data?.orders ?? [];
+
     if (orderId) {
       // Single order replacement (assuming the store supports replacing a single normalized entry)
-      useOrderStore.getState().replaceOrderProjection(data.order);
+      if (orderPayload) {
+        useOrderStore.getState().replaceOrderProjection(orderPayload);
+      }
     } else {
       // Full collection replacement
-      useOrderStore.getState().replaceOrdersProjection(data.orders);
+      if (!Array.isArray(ordersPayload)) {
+        console.error('[ProjectionCoordinator] Unexpected response shape:', data);
+        useOrderStore.getState().replaceOrdersProjection([]);
+      } else {
+        useOrderStore.getState().replaceOrdersProjection(ordersPayload);
+      }
     }
 
     // Update watermark
