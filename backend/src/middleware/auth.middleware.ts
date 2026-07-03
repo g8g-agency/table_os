@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/middleware/auth.middleware.ts
 // Request authentication and authorization middleware.

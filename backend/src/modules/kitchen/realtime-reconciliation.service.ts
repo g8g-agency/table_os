@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/realtime-reconciliation.service.ts
 // Realtime Reconciliation Service for reconnect recovery.

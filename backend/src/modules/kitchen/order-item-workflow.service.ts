@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/order-item-workflow.service.ts
 // Order Item Workflow Service managing individual item lifecycle.

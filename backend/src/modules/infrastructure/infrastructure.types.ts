@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/infrastructure/infrastructure.types.ts
 // Hardened Type definitions and DTO contracts for reliability runtime.

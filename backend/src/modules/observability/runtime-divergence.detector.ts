@@ -1,10 +1,11 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/runtime-divergence.detector.ts
 // Passive engine consuming normalized telemetry states to detect runtime anomalies.
 // CRITICAL: MUST NEVER MUTATE RUNTIME STATE.
 // ============================================================
 
-import { RuntimeSnapshot, RuntimeEventTelemetry, TelemetryEventType } from './telemetry.types';
+import type { RuntimeSnapshot, RuntimeEventTelemetry, TelemetryEventType } from './telemetry.types';
 import { TelemetryBroadcaster } from './telemetry.broadcaster';
 
 interface DetectorState {

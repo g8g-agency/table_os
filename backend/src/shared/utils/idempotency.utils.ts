@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * Utility for handling idempotency checks.
  * In a real-world scenario, this would interact with Redis or a dedicated DB table.

@@ -12,6 +12,7 @@ import { createApp } from './app';
 import { logger } from './shared/utils/logger';
 import { GracefulShutdownService } from './modules/infrastructure/graceful-shutdown.service';
 import { AppError } from './shared/errors/AppError';
+import os from 'node:os';
 
 import { WebSocketManager } from './modules/transport/websocket.manager';
 
@@ -19,7 +20,6 @@ const app = createApp();
 const PORT = env.PORT;
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  const os = require('os');
   const nets = os.networkInterfaces();
   const results = Object.create(null);
 
@@ -48,6 +48,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   
   Object.keys(results).forEach((iface) => {
     results[iface].forEach((ip: string) => {
+      // eslint-disable-next-line no-console
       console.log(`🌍 Network (LAN): http://${ip}:${PORT}`);
     });
   });

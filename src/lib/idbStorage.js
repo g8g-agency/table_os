@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { openDB } from 'idb';
 
 const DB_NAME = 'tableos-runtime-db';

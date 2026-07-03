@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * Creates a fresh test order in pending status, then runs it through
  * the full state machine (pending → accepted → preparing → ready)

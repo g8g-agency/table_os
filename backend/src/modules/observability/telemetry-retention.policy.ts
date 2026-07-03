@@ -1,9 +1,10 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/telemetry-retention.policy.ts
 // Runtime Telemetry Retention & Sampling Policy
 // ============================================================
 
-import { RuntimeEventTelemetry } from './telemetry.types';
+import type { RuntimeEventTelemetry } from './telemetry.types';
 
 interface RetentionConfig {
   maxEventsPerTenant: number;

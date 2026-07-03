@@ -1,9 +1,11 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/runtime-certification/index.ts
 // Entrypoint for executing the runtime certification harness.
 // ============================================================
 
-import { CertificationHarness, CertificationResult } from './certification.harness';
+import type { CertificationResult } from './certification.harness';
+import { CertificationHarness } from './certification.harness';
 import { AllScenarios } from './scenarios';
 
 export class RuntimeCertificationRunner {

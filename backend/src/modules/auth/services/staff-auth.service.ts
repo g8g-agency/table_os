@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { supabaseAdmin } from '../../../config/supabase';
 import { AuthenticationError } from '../../../shared/errors/AppError';
 import { env } from '../../../config/env';
-import { RuntimeJwtPayload } from './runtime-auth.service';
+import type { RuntimeJwtPayload } from './runtime-auth.service';
 
 export interface StaffLoginRequest {
   tenantId: string;

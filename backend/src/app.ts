@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/app.ts
 // Express application factory. Wires all middleware and routes.

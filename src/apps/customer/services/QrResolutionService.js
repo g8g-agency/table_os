@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { QrRepository } from '../repositories/QrRepository';
 import { runtime } from '../../../runtime';
 

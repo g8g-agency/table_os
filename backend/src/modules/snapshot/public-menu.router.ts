@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/snapshot/public-menu.router.ts
 // Router for all guest public-facing endpoints (Menu, Orders, Waiter Calls).

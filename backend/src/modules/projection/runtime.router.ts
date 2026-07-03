@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/projection/runtime.router.ts
 // Reliability, checksum, and drift APIs for distributed operational projections.

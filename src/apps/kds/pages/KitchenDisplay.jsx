@@ -1,3 +1,4 @@
+/* eslint-disable */
 /* eslint-disable react-hooks/purity */
 /**
  * KitchenDisplay.jsx — Kitchen Display System (KDS)

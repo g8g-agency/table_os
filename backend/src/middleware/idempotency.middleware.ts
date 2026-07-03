@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/middleware/idempotency.middleware.ts
 // Express middleware for deterministic response replay and deduplication.

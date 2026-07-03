@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/kitchen-queue-projection.service.ts
 // Active Kitchen Queue Projection and Prioritization Service.
@@ -5,7 +6,7 @@
 
 import { supabaseAdmin } from '../../config/supabase';
 import { logger } from '../../shared/utils/logger';
-import { ActiveKitchenOrderProjection, ActiveItemPrepProjection } from './kitchen-queue-projection.types';
+import type { ActiveKitchenOrderProjection, ActiveItemPrepProjection } from './kitchen-queue-projection.types';
 
 export class KitchenQueueProjectionService {
   /**

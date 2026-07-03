@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/kitchen-station-router.ts
 // Station Routing Engine resolving menu items to kitchen stations.

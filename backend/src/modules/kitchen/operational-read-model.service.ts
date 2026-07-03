@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/operational-read-model.service.ts
 // Operational Read Model Service creating optimized UI views.

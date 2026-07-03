@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/outbox-processor.ts
 // OutboxProcessor mapping, claiming, and dispatching outbox

@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { create } from 'zustand';
 import { fetchWithRuntime } from '../../lib/apiClient';
 

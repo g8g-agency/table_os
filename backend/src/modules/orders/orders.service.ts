@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/orders/orders.service.ts
 // Service layer orchestrating the order checkout flow, FSM

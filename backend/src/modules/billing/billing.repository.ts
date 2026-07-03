@@ -7,7 +7,7 @@
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
-import { BillDTO } from './billing-runtime.types';
+import type { BillDTO } from './billing-runtime.types';
 
 export type PaymentMethod = 'cash' | 'card' | 'qr_pay' | 'wallet' | 'split' | 'other';
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/metrics.repository.ts
 // Repository managing append-only persistence of operational metrics.

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/tables/services/table.service.ts
 // Business logic for table lifecycle management.

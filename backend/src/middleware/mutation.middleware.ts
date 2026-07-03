@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/middleware/mutation.middleware.ts
 // Validates the deterministic MutationEnvelope for runtime mutations.

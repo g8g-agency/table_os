@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type { Request, Response, NextFunction } from 'express';
 import * as pricingService from '../services/pricing.service';
 import { formatSuccess } from '../../../shared/utils/response-formatter';

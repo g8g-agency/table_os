@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../config/supabase';
 import { logger as log } from '../../../shared/utils/logger';
 

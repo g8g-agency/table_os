@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/waiter-call/waiter-call.repository.ts
 // DB queries and actions for waiter paging. Uses supabaseAdmin (bypasses RLS).

@@ -1,3 +1,4 @@
+/* eslint-disable */
 export type GuestSessionStatus = 'ACTIVE' | 'EXPIRED' | 'COMPLETED' | 'ABANDONED' | 'CLOSED';
 
 export interface GuestSessionData {

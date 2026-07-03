@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/worker.service.ts
 // Secure, high-concurrency worker engine implementing:

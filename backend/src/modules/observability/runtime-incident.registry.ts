@@ -3,7 +3,7 @@
 // Centralized operational source of truth for runtime incidents.
 // ============================================================
 
-import { TelemetrySeverity, TelemetryEventType, RuntimeEventTelemetry } from './telemetry.types';
+import type { TelemetrySeverity, TelemetryEventType, RuntimeEventTelemetry } from './telemetry.types';
 
 export type IncidentState = 'OPEN' | 'ACKNOWLEDGED' | 'MITIGATING' | 'STABLE' | 'RESOLVED' | 'ARCHIVED';
 export type EscalationLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';

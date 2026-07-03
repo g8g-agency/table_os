@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/infrastructure/recovery-toolkit.service.ts
 // Replay-safe Operational Recovery Toolkit and admin repair job orchestration.

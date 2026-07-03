@@ -4,7 +4,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '../../config/supabase';
-import { RuntimeEventTelemetry } from './telemetry.types';
+import type { RuntimeEventTelemetry } from './telemetry.types';
 import { RuntimeMetricsAggregator } from './runtime-metrics.aggregator';
 import ObservabilityService from '../infrastructure/observability.service';
 import { TelemetryRetentionPolicy } from './telemetry-retention.policy';

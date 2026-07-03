@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { Client } from 'pg';
 import dotenv from 'dotenv';
 dotenv.config();

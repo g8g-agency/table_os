@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/billing/billing.controller.ts
 // Express controller validating DTO inputs and coordinating

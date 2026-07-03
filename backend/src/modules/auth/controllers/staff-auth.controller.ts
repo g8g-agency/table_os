@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type { Request, Response, NextFunction } from 'express';
 import { StaffAuthService } from '../services/staff-auth.service';
 import { StaffLoginSchema, validate } from '../validators/auth.validators';

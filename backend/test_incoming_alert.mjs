@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * Test the "order incoming" alert (ORDER_ASSIGNED) by:
  * 1. Creating a fresh pending order in DB

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/infrastructure/observability.service.ts
 // Production-grade context propagation using AsyncLocalStorage

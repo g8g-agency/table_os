@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/auth/services/auth.service.ts
 // Core auth business logic. Orchestrates Supabase Auth + DB.

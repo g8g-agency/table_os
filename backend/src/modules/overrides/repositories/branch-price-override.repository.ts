@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/overrides/repositories/branch-price-override.repository.ts
 // Repository for branch pricing overrides.

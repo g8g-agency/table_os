@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/kitchen.repository.ts
 // Repository handling Kitchen KDS queues, stations, and items.

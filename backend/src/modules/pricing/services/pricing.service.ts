@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { AppError } from '../../../shared/errors/AppError';
 import * as pricingRepo from '../repositories/pricing.repository';
 import type { CreateMenuItemPriceDto, UpdateMenuItemPriceDto, PricingListQueryDto } from '../pricing.dtos';

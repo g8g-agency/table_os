@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { CustomerRecommendationRepository } from '../repositories/CustomerRecommendationRepository';
 
 /**

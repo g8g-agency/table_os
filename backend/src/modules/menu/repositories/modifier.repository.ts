@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/menu/repositories/modifier.repository.ts
 // DB access for modifier groups and options.

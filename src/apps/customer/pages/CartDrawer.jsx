@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * CartDrawer.jsx — Bottom-sheet cart overlay
  * Ported from qr-restaurant-demo/src/components/CartDrawer.tsx

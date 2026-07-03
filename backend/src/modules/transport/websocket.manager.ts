@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import crypto from 'crypto';

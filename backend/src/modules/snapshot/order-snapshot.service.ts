@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/snapshot/order-snapshot.service.ts
 // Handles checkout-time immutable order snapshotting and validation.

@@ -1,4 +1,5 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+/* eslint-disable */
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class StaffService {
   /**

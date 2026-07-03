@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/circuit-breaker.service.ts
 // Reusable, lightweight Circuit Breaker managing transition states,

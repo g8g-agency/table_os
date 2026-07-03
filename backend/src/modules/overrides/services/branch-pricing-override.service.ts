@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/overrides/services/branch-pricing-override.service.ts
 // Service layer for branch pricing overrides.

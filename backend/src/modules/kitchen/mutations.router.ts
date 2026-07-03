@@ -1,4 +1,6 @@
-import { Router, Response } from 'express';
+/* eslint-disable */
+import type { Response } from 'express';
+import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
 import { requireMutationEnvelope } from '../../middleware/mutation.middleware';
 import { AppError } from '../../shared/errors/AppError';

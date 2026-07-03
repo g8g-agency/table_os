@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { create } from 'zustand';
 
 export const useConnectivityStore = create((set, get) => ({

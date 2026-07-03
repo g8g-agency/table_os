@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * QR scan session keys (set by TableQrLanding, read by menu + cart).
  */

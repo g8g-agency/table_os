@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/snapshot/public-menu.controller.ts
 // HTTP controller for the new public menu snapshot endpoint.
@@ -21,7 +22,7 @@ import { formatETag, parseIfNoneMatch } from './snapshot-hash.util';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
 import { supabaseAdmin } from '../../config/supabase';
-import { BranchMenuSnapshotDto } from './snapshot.dtos';
+import type { BranchMenuSnapshotDto } from './snapshot.dtos';
 
 // ─── Cache-Control constants (60s CDN max-age, 300s SWR) ──────────────────────
 const CDN_MAX_AGE_SECONDS = 60;

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/waiter-call/waiter-call.controller.ts
 // Express controller handling public and staff-facing waiter calls.

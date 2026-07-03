@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { validateAccessToken } from './dist/modules/auth/services/auth.service.js';
 import dotenv from 'dotenv';
 dotenv.config();

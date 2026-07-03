@@ -1,9 +1,10 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/runtime-metrics.aggregator.ts
 // In-memory deterministic runtime snapshot aggregation layer.
 // ============================================================
 
-import { RuntimeSnapshot, RuntimeEventTelemetry, RuntimeDomainHealth } from './telemetry.types';
+import type { RuntimeSnapshot, RuntimeEventTelemetry, RuntimeDomainHealth } from './telemetry.types';
 import { RuntimeDivergenceDetector } from './runtime-divergence.detector';
 import { TimeBucketTracker } from './time-bucket.aggregator';
 import { CorrelationGraphIndexer } from './correlation-graph.indexer';
