@@ -27,7 +27,7 @@ export async function resolvePermissionsByRole(role: Role): Promise<Set<Permissi
   const { data, error } = await supabaseAdmin
     .from('role_permissions')
     .select('permission_key')
-    .ilike('role', role);
+    .eq('role', role);
 
   if (error) {
     logger.error({ err: error, role }, '[RBAC] resolvePermissionsByRole failed — returning empty set');

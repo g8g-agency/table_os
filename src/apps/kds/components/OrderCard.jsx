@@ -171,7 +171,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         setIsActionLoading(true);
         try {
           const { runtimeSessionId, kitchenDeviceId } = useKdsIdentityStore.getState();
-          await submitMutation('/api/v1/mutations', {
+          const response = await submitMutation('/api/v1/mutations', {
             mutation_id: `KITCHEN_REJECT_ORDER_${id}_${Date.now()}`,
             idempotency_key: `KITCHEN_REJECT_ORDER_${id}`,
             payload: {
@@ -181,6 +181,14 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               kitchenDeviceId
             }
           });
+          
+          const result = await response.json();
+          if (result.already_resolved) {
+            alert(`ℹ️ Order already ${result.final_status} by staff — removed from screen`);
+          } else if (result.success) {
+            // Success case, silent, just remove it
+          }
+
           const { branchId } = useRuntimeIdentityStore.getState();
           const { stationId } = useKdsIdentityStore.getState();
           

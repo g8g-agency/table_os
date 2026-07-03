@@ -30,6 +30,7 @@ import {
   SessionRevokedError,
   TokenInvalidError,
   RateLimitError,
+  AuthenticationError,
 } from '../../../shared/errors/AppError';
 import type {
   LoginRequest,

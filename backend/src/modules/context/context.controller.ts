@@ -19,7 +19,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../../config/supabase';
-import { findAdminProfileById } from '../auth/repositories/auth.repository';
+
 import { logger as log } from '../../shared/utils/logger';
 import {
   skippedTenantsFallback,

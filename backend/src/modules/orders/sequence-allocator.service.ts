@@ -38,5 +38,17 @@ export async function allocateSequenceNumber(params: {
   }
 
   const allocatedVal = Number(data);
-  return `${prefix}-${String(allocatedVal).padStart(4, '0')}`;
+
+  let finalPrefix = prefix;
+  if (dailyReset) {
+    const now = new Date();
+    const dateStr = [
+      String(now.getUTCFullYear()).slice(2),
+      String(now.getUTCMonth() + 1).padStart(2, '0'),
+      String(now.getUTCDate()).padStart(2, '0')
+    ].join('');
+    finalPrefix = `${prefix}-${dateStr}`;
+  }
+
+  return `${finalPrefix}-${String(allocatedVal).padStart(4, '0')}`;
 }

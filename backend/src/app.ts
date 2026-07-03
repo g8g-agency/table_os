@@ -38,6 +38,7 @@ import { observabilityRouter } from './modules/observability/observability.route
 import { analyticsRouter } from './modules/analytics/analytics.router';
 import { contextRouter } from './modules/context/context.router';
 import { customerRouter } from './modules/customer/customer.router';
+import { reviewsRouter } from './modules/reviews/reviews.router';
 import { ObservabilityService } from './modules/infrastructure/observability.service';
 import { errorMiddleware } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
@@ -195,6 +196,9 @@ export function createApp(): express.Application {
   // ─── Customer API ───────────────────────────────────────────
   app.use('/api/v1/customer', customerRouter);
 
+  // ─── Reviews API ────────────────────────────────────────────
+  app.use('/api/v1/reviews', reviewsRouter);
+
   // ─── Analytics API ──────────────────────────────────────────
   app.use('/api/v1/analytics', analyticsRouter);
 
@@ -206,6 +210,12 @@ export function createApp(): express.Application {
   // ─── Context/Bootstrap API ────────────────────────────────────
   // Single-payload bootstrap for the admin app. Must resolve before routing.
   app.use('/api/v1/context', contextRouter);
+
+  // ─── Dev API ──────────────────────────────────────────────────
+  if (process.env.NODE_ENV !== 'production') {
+    const { devRouter } = require('./modules/infrastructure/dev.controller');
+    app.use('/api/v1/dev', devRouter);
+  }
   // ─── 404 handler ───────────────────────────────────────────
   app.use((_req, res) => {
     res.status(404).json({

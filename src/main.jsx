@@ -34,6 +34,7 @@ import {
   CheckIn
 } from './apps/customer/index'
 import TableQrLanding from './apps/customer/pages/TableQrLanding.jsx'
+import SessionEndedPage from './apps/customer/pages/SessionEnded.jsx'
 
 // Waiter / Staff App (Placeholder for real staff app)
 import { 
@@ -175,6 +176,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/menu/profile" element={<ProfilePage />} />
               <Route path="/menu/cart" element={<CartPage />} />
               <Route path="/menu/checkin" element={<CheckInRoute />} />
+              <Route path="/session-ended" element={<SessionEndedPage />} />
 
               {/* Admin App is handled natively in Flutter, no web routes here */}
 

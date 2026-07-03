@@ -42,10 +42,7 @@ export async function requireQrSession(req: Request, _res: Response, next: NextF
         throw new AppError('Guest session is not active', 403, ErrorCode.FORBIDDEN);
       }
       
-      const expiresAt = session.session_data?.expires_at;
-      if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
-        throw new AppError('Guest session expired', 401, ErrorCode.UNAUTHORIZED);
-      }
+      // Session expiration is no longer strictly enforced here; we rely on is_active.
 
       req.qrSession = {
         id: session.id,

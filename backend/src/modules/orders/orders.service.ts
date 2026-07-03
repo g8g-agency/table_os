@@ -210,16 +210,6 @@ export async function createOrderFromCart(params: {
       idempotencyKey: idempotencyKey || null,
     });
 
-    const latestCart = await cartRepo.findCartById(tenantId, cartId);
-
-    logger.info({
-      stage: 'DEBUG_CHECKOUT',
-      cartId,
-      cartStatus: latestCart?.status,
-      sessionId: params.sessionId,
-      tenantId,
-    });
-
     const { data, error } = await supabaseAdmin.rpc('orchestrate_checkout_v1', {
       p_tenant_id: tenantId,
       p_cart_id: cartId,
@@ -229,7 +219,7 @@ export async function createOrderFromCart(params: {
       p_invoice_id: invoiceId,
       p_invoice_number: invoiceNumber,
       p_table_id: params.tableId,
-      p_session_id: params.sessionId || cart.session_id || null,
+      p_session_id: params.sessionId || cart!.session_id || null,
       p_source: params.source,
       p_order_notes: params.orderNotes || null,
       p_user_id: params.userId || null,
@@ -240,19 +230,19 @@ export async function createOrderFromCart(params: {
       stage: 'after_checkout_rpc',
       tenantId,
       cartId,
-      error: error ? error.message : null,
+      error: error ? error!.message : null,
       dataAvailable: !!data,
     });
 
     if (error) {
-      if (error.message.includes('Cart is already checked out or locked')) {
+      if (error!.message.includes('Cart is already checked out or locked')) {
         throw new AppError(
           'Cart is already checked out or locked',
           409,
           ErrorCode.CART_ALREADY_CHECKED_OUT
         );
       }
-      throw new AppError(`Atomic transaction failed: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      throw new AppError(`Atomic transaction failed: ${error!.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
 
     const response = data as any;
@@ -268,7 +258,7 @@ export async function createOrderFromCart(params: {
     };
 
     // ── Dispatch ORDER_ASSIGNED realtime event ────────────────────────────
-    void _dispatchOrderAssignedEvent(createdOrder, cart.branch_id, tenantId, cartItems);
+    void _dispatchOrderAssignedEvent(createdOrder, cart!.branch_id, tenantId, cartItems);
 
     // Pass through the raw RPC response fields as well so the frontend gets everything
     return { ...createdOrder, ...response };
@@ -526,13 +516,13 @@ export async function reassignOrder(params: {
 
   // Fetch cart items for the alert payload
   const { data: snapshotItems } = await supabaseAdmin
-    .from('order_snapshot_items')
-    .select('item_name_snapshot, quantity, unit_price_minor_snapshot')
+    .from('order_item_snapshots')
+    .select('item_name_snapshot, quantity, unit_price_minor')
     .eq('order_snapshot_id', order.order_snapshot_id);
 
   const cartItems = snapshotItems ?? [];
   const totalAmountMinor = cartItems.reduce(
-    (sum: number, item: any) => sum + (item.unit_price_minor_snapshot ?? 0) * (item.quantity ?? 1),
+    (sum: number, item: any) => sum + (item.unit_price_minor ?? 0) * (item.quantity ?? 1),
     0
   );
 

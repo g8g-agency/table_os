@@ -40,6 +40,9 @@ export interface Order {
   ready_at: string | null;
   delivered_at: string | null;
   completed_at: string | null;
+  payment_status: string;
+  payment_method: string | null;
+  paid_at: string | null;
   version_num: number;
   created_by: string | null;
   updated_by: string | null;

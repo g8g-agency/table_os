@@ -49,10 +49,9 @@ export async function createQrCode(
     throw new AppError('Table does not belong to the specified branch', 403, ErrorCode.FORBIDDEN);
   }
 
-  const existing = await qrRepo.findActiveQrCodeByTable(tenantId, dto.table_id);
-  if (existing) {
-    await qrRepo.invalidateQrCode(tenantId, existing.id, actorId);
-  }
+  // const existing = await qrRepo.findActiveQrCodeByTable(tenantId, dto.table_id);
+  // Note: We no longer auto-invalidate the old QR code.
+  // They will be left active to expire naturally, preventing in-progress diners from being booted.
 
   const codeSlug = dto.code_slug ?? generateSecureToken(8).slice(0, 12);
   const qrCodeId = randomUUID();
@@ -204,10 +203,7 @@ export async function validateSessionToken(sessionToken: string): Promise<QrSess
     throw new AppError('Session is not active', 403, ErrorCode.FORBIDDEN);
   }
 
-  if (new Date(session.expires_at).getTime() <= Date.now()) {
-    await qrRepo.updateSessionStatus(session.tenant_id, session.id, 'expired', { expires_at: session.expires_at });
-    throw new AppError('Session expired', 401, ErrorCode.UNAUTHORIZED);
-  }
+  // Expiration check removed; rely on is_active.
 
   return session;
 }

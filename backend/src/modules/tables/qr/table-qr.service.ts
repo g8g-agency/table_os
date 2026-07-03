@@ -36,23 +36,9 @@ export class TableQRService {
   async rotateTableToken(tenantId: string, tableId: string): Promise<string> {
     const newToken = this.generateSecureToken();
 
-    // Begin transaction-like sequence (or rely on Supabase RPC/MutationQueue for strict isolation)
-    
-    // 1. Invalidate current active tokens
-    await this.supabase
-      .from('table_qr_tokens')
-      .update({ is_active: false, revoked_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId)
-      .eq('table_id', tableId)
-      .eq('is_active', true);
+    // Note: We no longer auto-invalidate the old QR code or its associated guest sessions.
+    // They will be left active to expire naturally, preventing in-progress diners from being booted.
 
-    // 2. Cascade invalidate active guest sessions for the old token
-    await this.supabase
-      .from('guest_sessions')
-      .update({ status: 'CLOSED', closed_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId)
-      .eq('table_id', tableId)
-      .eq('status', 'ACTIVE');
 
     // 2. Insert new token
     const { error } = await this.supabase
@@ -93,29 +79,50 @@ export class TableQRService {
     // 1. Resolve active token -> table context (legacy table_qr_tokens or permanent tables.qr_token)
     let tokenData: { id?: string; tenant_id: string; table_id: string; access_count?: number } | null = null;
 
-    const { data: legacyToken, error: tokenError } = await this.supabase
-      .from('table_qr_tokens')
-      .select('id, tenant_id, table_id, access_count')
-      .eq('public_token', publicToken)
-      .eq('is_active', true)
-      .maybeSingle();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(publicToken);
 
-    if (!tokenError && legacyToken) {
-      tokenData = legacyToken;
-    } else {
+    if (isUuid) {
+      // Permanent non-expiring QR codes (table_id IS the QR code)
       const { data: tableRow } = await this.supabase
         .from('tables')
-        .select('id, tenant_id, qr_token')
-        .eq('qr_token', publicToken)
+        .select('id, tenant_id')
+        .eq('id', publicToken)
         .is('deleted_at', null)
         .maybeSingle();
 
-      if (tableRow?.qr_token) {
+      if (tableRow) {
         tokenData = {
           tenant_id: tableRow.tenant_id,
           table_id: tableRow.id,
           access_count: 0,
         };
+      }
+    } else {
+      // Legacy table_qr_tokens or tables.qr_token fallback
+      const { data: legacyToken, error: tokenError } = await this.supabase
+        .from('table_qr_tokens')
+        .select('id, tenant_id, table_id, access_count')
+        .eq('public_token', publicToken)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (!tokenError && legacyToken) {
+        tokenData = legacyToken;
+      } else {
+        const { data: tableRow } = await this.supabase
+          .from('tables')
+          .select('id, tenant_id, qr_token')
+          .eq('qr_token', publicToken)
+          .is('deleted_at', null)
+          .maybeSingle();
+
+        if (tableRow?.qr_token) {
+          tokenData = {
+            tenant_id: tableRow.tenant_id,
+            table_id: tableRow.id,
+            access_count: 0,
+          };
+        }
       }
     }
 
@@ -221,6 +228,7 @@ export class TableQRService {
       device_fingerprint: deviceFingerprint || `anonymous-${requestIp}`,
       snapshot_id: branchData?.active_published_snapshot_id ?? undefined,
       customer_identity_id: customerIdentityId,
+      qr_code_id: undefined,
     });
 
     // 4. Audit Logging for Security

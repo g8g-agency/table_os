@@ -200,11 +200,7 @@ export default function OrderConfirmed() {
         })()}
       </div>
 
-      {/* 6. GREEN TIMER BADGE */}
-      <div className="bg-[#DCFCE7] rounded-full px-4 py-2 flex items-center gap-2 mb-6">
-        <span style={{ fontSize: '15px' }}>🕐</span>
-        <span className="text-[13px] font-[600] text-[#16A34A]">Ready in approximately 12 mins</span>
-      </div>
+
 
       {/* 7. TRACK MY ORDER BUTTON */}
       <button 
