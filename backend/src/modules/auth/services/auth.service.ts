@@ -30,7 +30,6 @@ import {
   SessionRevokedError,
   TokenInvalidError,
   RateLimitError,
-  AuthenticationError,
 } from '../../../shared/errors/AppError';
 import type {
   LoginRequest,
@@ -59,11 +58,11 @@ async function getSigningKey(kid: string): Promise<string> {
 export async function verifySupabaseToken(token: string) {
   const decoded = jwt.decode(token, { complete: true });
   if (!decoded || typeof decoded === 'string') {
-    throw new AuthenticationError('Invalid token format');
+    throw new TokenInvalidError('Invalid token format');
   }
   
   const kid = decoded.header.kid;
-  if (!kid) throw new AuthenticationError('Missing key ID in token');
+  if (!kid) throw new TokenInvalidError('Missing key ID in token');
 
   const publicKey = await getSigningKey(kid);
   

@@ -49,7 +49,7 @@ export const useKitchenOrdersProjection = create((set, get) => ({
           }
 
           // Priority 5: Lexicographical ID fallback
-          return String(a.id).localeCompare(String(b.id));
+          return String(a.ticketId || a.id).localeCompare(String(b.ticketId || b.id));
         });
 
         set({ orders: sortedOrders });
@@ -71,7 +71,7 @@ export const useKitchenOrdersProjection = create((set, get) => ({
     // Apply strict operational boundaries for optimistic overlays
     pendingMutations.forEach(mutation => {
       const { type, payload } = mutation;
-      const order = baseOrders.find(o => o.id === payload.orderId);
+      const order = baseOrders.find(o => (o.ticketId || o.id) === payload.orderId);
       
       if (order) {
         if (type === 'KITCHEN_MARK_PREPARING') {

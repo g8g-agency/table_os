@@ -15,29 +15,40 @@ export class GuestSessionService {
     );
 
     if (activeSession) {
-      // 2. Reconnect/continuity check: does the fingerprint match?
-      const deviceFingerprints = activeSession.session_data?.device_fingerprints || [];
-      const isRecognizedDevice = deviceFingerprints.includes(dto.device_fingerprint);
+      const expiresAt = activeSession.session_data?.expires_at;
+      const isExpired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
 
-      if (isRecognizedDevice) {
+      if (isExpired) {
         logger.info(
           { sessionId: activeSession.id, tableId: dto.table_id },
-          'Reconnecting recognized device to active guest session'
+          'Active guest session is expired. Deactivating and creating a new one.'
         );
-        return activeSession;
-      }
+        await GuestSessionRepository.updateSessionStatus(dto.tenant_id, activeSession.id, 'EXPIRED');
+      } else {
+        // 2. Reconnect/continuity check: does the fingerprint match?
+        const deviceFingerprints = activeSession.session_data?.device_fingerprints || [];
+        const isRecognizedDevice = deviceFingerprints.includes(dto.device_fingerprint);
 
-      // If a different device attempts to connect, we link it as a multi-device session (device continuity support)
-      logger.info(
-        { sessionId: activeSession.id, tableId: dto.table_id },
-        'Linking new device fingerprint to active guest session'
-      );
-      return GuestSessionRepository.addFingerprintToSession(
-        dto.tenant_id,
-        activeSession.id,
-        dto.device_fingerprint,
-        activeSession.session_data || {}
-      );
+        if (isRecognizedDevice) {
+          logger.info(
+            { sessionId: activeSession.id, tableId: dto.table_id },
+            'Reconnecting recognized device to active guest session'
+          );
+          return activeSession;
+        }
+
+        // If a different device attempts to connect, we link it as a multi-device session (device continuity support)
+        logger.info(
+          { sessionId: activeSession.id, tableId: dto.table_id },
+          'Linking new device fingerprint to active guest session'
+        );
+        return GuestSessionRepository.addFingerprintToSession(
+          dto.tenant_id,
+          activeSession.id,
+          dto.device_fingerprint,
+          activeSession.session_data || {}
+        );
+      }
     }
 
     // 3. No active session. Construct new session without hard expiration (relies on is_active)

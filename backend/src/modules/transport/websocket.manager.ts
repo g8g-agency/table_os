@@ -92,9 +92,7 @@ export class WebSocketManager {
 
       // 3. Upgrade Connection
       this.wss.handleUpgrade(req, socket, head, (ws) => {
-        // The subprotocol accepted MUST be returned exactly as provided by the client,
-        // but passing it here completes the handshake. We just echo the token back.
-        this.wss.emit('connection', ws, req, fullIdentity);
+        this.initializeConnection(ws, fullIdentity);
       });
 
     } catch (err: any) {
@@ -150,7 +148,7 @@ export class WebSocketManager {
   }
 
   /**
-   * Handles incoming client frames (SYNC, ACK).
+   * Handles incoming client frames (SYNC, ACK, ping, pong).
    */
   private handleClientFrame(ws: WebSocket, identity: ConnectionIdentity, data: Buffer): void {
     try {
@@ -167,6 +165,9 @@ export class WebSocketManager {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'pong' }));
         }
+        (ws as any).isAlive = true;
+      } else if (frame.type === 'pong') {
+        // Flutter app responded to our server_ping — mark connection alive
         (ws as any).isAlive = true;
       } else {
         logger.warn({ identity, frame }, '[Transport] Unknown frame received');
@@ -214,17 +215,26 @@ export class WebSocketManager {
     };
 
     const rawMsg = JSON.stringify(envelope);
+    let sent = 0;
+    let skipped = 0;
 
     channel.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(rawMsg);
+        sent++;
+      } else {
+        skipped++;
       }
     });
+
+    logger.info({ branchId, eventType, sent, skipped }, '[Transport] Broadcast dispatched');
   }
 
   /**
    * Heartbeat reaping mechanism.
    * Runs every 30 seconds to clean up dead connections.
+   * Uses application-level ping (not protocol-level ws.ping()) to avoid
+   * Flutter's web_socket_channel misinterpreting protocol PING frames.
    */
   private setupHeartbeat(): void {
     this.heartbeatInterval = setInterval(() => {
@@ -239,7 +249,10 @@ export class WebSocketManager {
           }
 
           ws.isAlive = false;
-          ws.ping();
+          // Use application-level ping so Flutter clients can handle it properly
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'server_ping' }));
+          }
         });
       });
     }, 30000);

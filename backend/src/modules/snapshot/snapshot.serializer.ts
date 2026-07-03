@@ -59,7 +59,7 @@ function serializeAvailability(item: ResolvedMenuItem): SnapshotAvailabilityDto 
 
 export function serializeSnapshot(
   resolved: ResolvedEffectiveMenu,
-  currency = 'USD'
+  currency = 'INR'
 ): BranchMenuSnapshotPayload {
   const flatCategories: SnapshotCategoryDto[] = [];
   const flatItems: SnapshotMenuItemDto[] = [];
@@ -131,7 +131,7 @@ export function serializeSnapshot(
             modifier_group_id: group.id, // Relational link injected
             name: opt.name,
             price_delta_minor: opt.price_delta_minor,
-            currency: 'USD',
+            currency: 'INR',
             is_default: opt.is_default,
             is_available: opt.is_available,
             display_order: opt.display_order,

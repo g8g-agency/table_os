@@ -81,7 +81,7 @@ export async function resolvePricesBatch(req: Request<{ tenantId: string }>, res
   try {
     const tenantId = String(req.params.tenantId);
     const entityIds = req.body.entity_ids || [];
-    const currencyCode = req.body.currency_code || 'USD';
+    const currencyCode = req.body.currency_code || 'INR';
     const asOf = req.body.as_of;
 
     const resolutions = await pricingService.resolvePricesBatch(tenantId, entityIds, currencyCode, asOf);

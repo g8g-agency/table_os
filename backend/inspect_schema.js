@@ -11,7 +11,7 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 
 async function run() {
-  const tables = ['tenants', 'branches', 'admin_profiles', 'users', 'restaurant_settings', 'orders', 'onboarding_state', 'tenant_tax_profile'];
+  const tables = ['tables', 'restaurant_tables', 'table_floors'];
   for (const table of tables) {
     const { data, error } = await supabase.from(table).select('*').limit(1);
     if (error) {

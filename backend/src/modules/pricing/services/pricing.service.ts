@@ -138,7 +138,7 @@ export async function listPrices(
 export async function resolvePrice(
   tenantId: string,
   menuItemId: string,
-  currencyCode: string = 'USD',
+  currencyCode: string = 'INR',
   asOf?: string
 ): Promise<MenuItemPriceResolution | null> {
   const targetDate = asOf || new Date().toISOString();
@@ -148,7 +148,7 @@ export async function resolvePrice(
 export async function resolvePricesBatch(
   tenantId: string,
   menuItemIds: string[],
-  currencyCode: string = 'USD',
+  currencyCode: string = 'INR',
   asOf?: string
 ): Promise<MenuItemPriceResolution[]> {
   if (!menuItemIds.length) return [];

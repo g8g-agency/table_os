@@ -25,7 +25,7 @@ async function runFinancialChaosSuite() {
       payment_provider: 'STRIPE',
       payment_reference: 'ch_stripe_ref_123',
       payment_amount_minor: 4500, // $45.00
-      currency_code: 'USD',
+      currency_code: 'INR',
       idempotency_key: idempotencyKey,
       replay_generation: 2500,
     };

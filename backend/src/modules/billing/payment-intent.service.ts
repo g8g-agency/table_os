@@ -63,7 +63,7 @@ export class PaymentIntentService {
           branch_id: branchId,
           bill_id: billId,
           amount_minor: amountMinor,
-          currency_code: 'USD',
+          currency_code: 'INR',
           status: 'created',
           payment_method: paymentMethod,
           idempotency_key: idempotencyKey,

@@ -165,7 +165,7 @@ export class BillAggregationService {
           grand_total_minor: totalGrand,
           amount_paid_minor: 0,
           amount_refunded_minor: 0,
-          currency_code: 'USD',
+          currency_code: 'INR',
         })
         .select()
         .single();
