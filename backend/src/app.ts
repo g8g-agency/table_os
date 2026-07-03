@@ -45,11 +45,29 @@ import { errorMiddleware } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
 import { devBroadcastRouter } from './modules/transport/dev-broadcast.router';
 
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import fs from 'fs';
+import path from 'path';
+
 export function createApp(): express.Application {
   const app = express();
 
   // ─── Security headers ──────────────────────────────────────
   app.use(helmet());
+
+  // ─── Compression ───────────────────────────────────────────
+  app.use(compression());
+
+  // ─── Global Rate Limiting ──────────────────────────────────
+  const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 1000, // Limit each IP to 1000 requests per `window`
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests' } },
+  });
+  app.use(globalLimiter);
 
   // ─── CORS ──────────────────────────────────────────────────
   app.use(
@@ -119,6 +137,22 @@ export function createApp(): express.Application {
       env: env.NODE_ENV,
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // ─── Ready check ───────────────────────────────────────────
+  app.get('/ready', (_req, res) => {
+    // Check DB or other critical services if needed here
+    res.status(200).json({ status: 'ready' });
+  });
+
+  // ─── Version check ─────────────────────────────────────────
+  app.get('/version', (_req, res) => {
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
+      res.status(200).json({ version: packageJson.version || '0.0.0' });
+    } catch (err) {
+      res.status(200).json({ version: 'unknown' });
+    }
   });
 
   // ─── Routes ────────────────────────────────────────────────

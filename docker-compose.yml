@@ -1,0 +1,90 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: orderlli_backend
+    restart: unless-stopped
+    env_file:
+      - backend/.env.production
+    networks:
+      - orderlli_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: orderlli_frontend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    networks:
+      - orderlli_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: orderlli_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      # Uncomment the following line when certificates are available on the host
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - orderlli_network
+    depends_on:
+      - backend
+      - frontend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: orderlli_uptime_kuma
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma:/app/data
+    ports:
+      - "3002:3001"
+    networks:
+      - orderlli_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  orderlli_network:
+    name: orderlli_network
+    driver: bridge
+
+volumes:
+  uptime-kuma:
