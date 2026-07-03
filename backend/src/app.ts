@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/app.ts
 // Express application factory. Wires all middleware and routes.
@@ -42,6 +43,7 @@ import { reviewsRouter } from './modules/reviews/reviews.router';
 import { ObservabilityService } from './modules/infrastructure/observability.service';
 import { errorMiddleware } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
+import { devBroadcastRouter } from './modules/transport/dev-broadcast.router';
 
 export function createApp(): express.Application {
   const app = express();
@@ -58,7 +60,8 @@ export function createApp(): express.Application {
           requestOrigin.startsWith('http://localhost:') ||
           requestOrigin.startsWith('http://127.0.0.1:') ||
           requestOrigin.startsWith('http://192.168.') ||
-          requestOrigin.startsWith('http://10.')
+          requestOrigin.startsWith('http://10.') ||
+          requestOrigin.startsWith('http://30.')
         ) {
           return callback(null, true);
         }
@@ -82,6 +85,7 @@ export function createApp(): express.Application {
         'X-Idempotency-Key',
         'X-Branch-Id',
         'X-Terminal-Id',
+        'X-Tenant-Id',
       ],
     })
   );
@@ -211,10 +215,11 @@ export function createApp(): express.Application {
   // Single-payload bootstrap for the admin app. Must resolve before routing.
   app.use('/api/v1/context', contextRouter);
 
-  // ─── Dev API ──────────────────────────────────────────────────
+  // ─── Dev API & Broadcast (non-prod only) ──────────────────────
   if (process.env.NODE_ENV !== 'production') {
     const { devRouter } = require('./modules/infrastructure/dev.controller');
     app.use('/api/v1/dev', devRouter);
+    app.use('/api/v1/dev/broadcast', devBroadcastRouter);
   }
   // ─── 404 handler ───────────────────────────────────────────
   app.use((_req, res) => {

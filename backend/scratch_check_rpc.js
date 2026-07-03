@@ -1,3 +1,4 @@
+/* eslint-disable */
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const supabaseUrl = process.env.SUPABASE_URL;

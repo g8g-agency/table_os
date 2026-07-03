@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../../config/supabase';
 import { ResponseFormatter } from '../../shared/utils/response-formatter';

@@ -6,6 +6,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   server: {
     host: true,
+    watch: {
+      ignored: ['**/backend/**']
+    },
     proxy: {
       '/api': {
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3001',
@@ -41,4 +44,7 @@ export default defineConfig({
       }
     })
   ],
+  optimizeDeps: {
+    exclude: ['backend']
+  }
 });

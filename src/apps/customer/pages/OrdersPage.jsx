@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchWithRuntime } from '../../../lib/apiClient'

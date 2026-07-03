@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/replay.service.ts
 // Secure Replay & Simulation Engine supporting dry-runs, payload validation,

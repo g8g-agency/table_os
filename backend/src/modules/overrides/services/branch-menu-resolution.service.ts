@@ -222,7 +222,7 @@ export class BranchMenuResolutionService {
       if (!resolvedPrice) {
         resolvedPrice = {
           price_minor: Math.round(Number(item.base_price || 0) * 100),
-          currency: 'USD',
+          currency: 'INR',
           source: 'default',
         };
       }

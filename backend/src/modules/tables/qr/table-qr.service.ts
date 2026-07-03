@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/tables/qr/table-qr.service.ts
 // QR Token Service

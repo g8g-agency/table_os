@@ -9,7 +9,8 @@ import { authenticate, internalEngineeringOrAbove } from '../../middleware/auth.
 import { RuntimeMetricsAggregator } from './runtime-metrics.aggregator';
 import { RuntimeCertificationRunner } from './runtime-certification';
 import { CorrelationGraphIndexer } from './correlation-graph.indexer';
-import { RuntimeSafetyController, SafetyDirectiveType } from './runtime-safety.controller';
+import type { SafetyDirectiveType } from './runtime-safety.controller';
+import { RuntimeSafetyController } from './runtime-safety.controller';
 import { RuntimeIncidentRegistry } from './runtime-incident.registry';
 
 const router: Router = Router({ mergeParams: true });

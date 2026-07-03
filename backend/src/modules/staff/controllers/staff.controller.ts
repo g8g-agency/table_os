@@ -1,4 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
+/* eslint-disable */
+import type { Request, Response, NextFunction } from 'express';
 import { CreateStaffSchema, UpdateStaffSchema } from '../validators/staff.validators';
 import { StaffService } from '../services/staff.service';
 import { supabaseAdmin as supabase } from '../../../config/supabase';

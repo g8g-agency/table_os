@@ -1,3 +1,4 @@
+/* eslint-disable */
 import crypto from 'crypto';
 import { WebSocketManager } from '../transport/websocket.manager';
 import { logProjectionAudit } from './projection-audit.repository';

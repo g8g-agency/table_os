@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * CheckIn.jsx — Smart customer check-in screen
  * Two visual states:

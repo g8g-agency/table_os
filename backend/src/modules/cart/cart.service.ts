@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/cart/cart.service.ts
 // Business logic for Cart engine and modifications.

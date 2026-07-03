@@ -10,6 +10,7 @@ import { ErrorCode } from '../../shared/errors/error-codes';
 import * as ordersRepo from './orders.repository';
 import { supabaseAdmin } from '../../config/supabase';
 import { logger } from '../../shared/utils/logger';
+import { WebSocketManager } from '../transport/websocket.manager';
 
 export const VALID_ORDER_TRANSITIONS: Record<ordersRepo.OrderStatus, ordersRepo.OrderStatus[]> = {
   pending: ['accepted', 'cancelled', 'sync_conflict'],
@@ -150,6 +151,18 @@ export class OrderLifecycleService {
       logger.error(
         { err: outboxError.message, orderId },
         '[OrderLifecycleService] Failed to queue domain outbox event.'
+      );
+    }
+
+    // 8. Directly broadcast order_update since there is no worker right now
+    const fullUpdatedOrder = await ordersRepo.getOrderById(tenantId, orderId);
+    if (fullUpdatedOrder) {
+      WebSocketManager.getInstance().broadcastToBranch(
+        fullUpdatedOrder.branch_id,
+        'ORDERING',
+        'OPERATIONAL_STREAM',
+        'order_update',
+        fullUpdatedOrder
       );
     }
 

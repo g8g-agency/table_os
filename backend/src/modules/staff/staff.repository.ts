@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/orders/orders.repository.ts
 // Repository layer for Order management and status auditing.

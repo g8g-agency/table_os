@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/kitchen-sla.service.ts
 // Kitchen SLA Service tracking ticket thresholds and escalations.

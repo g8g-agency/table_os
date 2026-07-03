@@ -29,8 +29,7 @@ export class MutationGateway {
 
   // Internal mutation state ledger
   private mutationLedger: Map<string, MutationIdentity> = new Map();
-  private stuckTimers: Map<string, NodeJS.Timeout> = new Map();
-
+  private stuckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   // E.g., API_BASE_URL
   private apiBaseUrl: string = resolveApiBaseUrl();
 
@@ -67,6 +66,10 @@ export class MutationGateway {
     const idempotencyKey = request.idempotency_key || crypto.randomUUID();
 
     const qrToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qr_session_token') : null;
+
+    // Use location.hostname for local network testing to work seamlessly
+    const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
+    this.apiBaseUrl = API_BASE_URL;
 
     // Get tenant and branch from runtime auth store
     const authState = useRuntimeAuthStore.getState();
@@ -114,11 +117,23 @@ export class MutationGateway {
     headers.set('X-Request-Id', requestId);
     headers.set('X-Idempotency-Key', idempotencyKey);
 
+    // Critical: backend mutations router reads tenant/branch from headers
+    if (tenantId) headers.set('X-Tenant-Id', tenantId);
+    if (branchId) headers.set('X-Branch-Id', branchId);
+
     // Get runtime token from auth store (works for KDS, Staff, POS)
     const runtimeToken = useRuntimeAuthStore.getState().runtimeToken;
-    if (runtimeToken) {
-      headers.set('Authorization', `Bearer ${runtimeToken}`);
-      console.debug('[MutationGateway] Added runtime token to headers');
+    let token = runtimeToken;
+    
+    if (!token && typeof localStorage !== 'undefined') {
+      try {
+        token = localStorage.getItem('supabase.auth.token');
+      } catch (e) {}
+    }
+    
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+      console.debug('[MutationGateway] Added auth token to headers');
     }
 
     // Fallback: Check for QR token (customer orders)

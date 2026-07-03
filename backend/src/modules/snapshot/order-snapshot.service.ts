@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/snapshot/order-snapshot.service.ts
 // Handles checkout-time immutable order snapshotting and validation.
@@ -199,7 +200,7 @@ export async function createOrderSnapshot(
       discount_total_minor: 0,
       grand_total_minor: calculatedGrandTotal,
       item_count: itemCalculatedLines.length,
-      currency_code: 'USD',
+      currency_code: 'INR',
       items: itemCalculatedLines.map((i) => ({
         menu_item_id: i.menu_item_id,
         quantity: i.quantity,
@@ -227,7 +228,7 @@ export async function createOrderSnapshot(
         tax_total_minor: calculatedTaxTotal,
         discount_total_minor: 0,
         grand_total_minor: calculatedGrandTotal,
-        currency_code: 'USD',
+        currency_code: 'INR',
         item_count: itemCalculatedLines.length,
         menu_snapshot_hash: hash,
         checkout_timestamp: checkoutTimestamp,

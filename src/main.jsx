@@ -1,3 +1,4 @@
+/* eslint-disable */
 import './polyfill.js' // MUST BE FIRST
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'

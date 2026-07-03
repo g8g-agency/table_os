@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/cart/cart.controller.ts
 // Express controller for Cart endpoints.

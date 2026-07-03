@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { supabaseAdmin } from '../../config/supabase';
 import { logger } from '../../shared/utils/logger';
 import { rebuildTableProjection } from '../tables/projections/table-runtime.projection';

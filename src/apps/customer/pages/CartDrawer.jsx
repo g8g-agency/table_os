@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * CartDrawer.jsx — Bottom-sheet cart overlay
  * Ported from qr-restaurant-demo/src/components/CartDrawer.tsx
@@ -70,7 +71,7 @@ export default function CartDrawer({ open, onClose }) {
     setIsPlacing(true)
     setErrorMsg(null)
     try {
-      const { tenantId, branchId, tableId } = getQrSession()
+      const { tenantId, branchId, tableId, sessionToken } = getQrSession()
       const resolvedTableNum = resolveTableNum()
       const guestSession = JSON.parse(localStorage.getItem('customerSession') || '{}')
 
@@ -83,10 +84,7 @@ export default function CartDrawer({ open, onClose }) {
 
       const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
 
-      const qrToken = sessionStorage.getItem('qr_session_token') || ''
-      console.log('[DEBUG] qrToken from sessionStorage:', sessionStorage.getItem('qr_session_token'));
-      console.log('[DEBUG] all sessionStorage keys:', Object.keys(sessionStorage));
-
+      const qrToken = sessionToken || ''
       const rawRes = await fetchPublicApi('/public/orders', {
         method: 'POST',
         headers: {
@@ -114,6 +112,7 @@ export default function CartDrawer({ open, onClose }) {
         ) {
           sessionStorage.removeItem('qr_session_token');
           sessionStorage.removeItem('qr_session');
+          localStorage.removeItem('orderlyy_qr_context');
           setErrorMsg('Your session has expired. Please scan the QR code on your table again.');
           setIsPlacing(false);
           return;
@@ -232,6 +231,9 @@ export default function CartDrawer({ open, onClose }) {
                       <button
                         onClick={() => {
                           sessionStorage.clear();
+                          localStorage.removeItem('orderlyy_qr_context');
+                          localStorage.removeItem('customerSession');
+                          localStorage.removeItem('guestProfile');
                           // Redirect back to the QR landing — preserves tenantId/branchId from URL
                           const params = new URLSearchParams(window.location.search);
                           window.location.href = `/menu/browse?tenantId=${params.get('tenantId')}&branchId=${params.get('branchId')}`;

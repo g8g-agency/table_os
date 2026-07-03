@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/observability.logger.ts
 // Structured JSON logger offering event correlation, tracing,

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { AppError } from '../shared/errors/AppError';
 import { ErrorCode } from '../shared/errors/error-codes';

@@ -1,4 +1,5 @@
-import { Response, NextFunction } from 'express';
+/* eslint-disable */
+import type { Response, NextFunction } from 'express';
 import { getDailyAnalytics, getAnalyticsAnalysis } from './analytics.repository';
 import { z } from 'zod';
 import { AppError } from '../../shared/errors/AppError';

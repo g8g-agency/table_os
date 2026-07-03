@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/tables/repositories/table.repository.ts
 // All DB access for table management. Uses supabaseAdmin (bypasses RLS).

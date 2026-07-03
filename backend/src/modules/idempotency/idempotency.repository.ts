@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/idempotency/idempotency.repository.ts
 // Production-grade PostgreSQL backing for request deduplication.

@@ -17,7 +17,7 @@ export async function listStaff(req: Request, res: Response, next: NextFunction)
     // Build query — always scope to tenant first
     let query = supabaseAdmin
       .from('staff')
-      .select('id, employee_id, name, role, branch_id, is_active')
+      .select('id, employee_id, name, role, branch_id, is_active, pin, section, developer_mode_enabled, profile_completed, profile_setup_step, first_name, last_name, profile_completed_at')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .order('name', { ascending: true });
@@ -42,7 +42,7 @@ export async function listStaff(req: Request, res: Response, next: NextFunction)
 
     res.json({
       success: true,
-      data: { staff: data ?? [] },
+      data: data ?? [],
     });
   } catch (err) {
     next(err);

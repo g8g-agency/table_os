@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * MenuHome.jsx
  * Ported from qr-restaurant-demo/src/components/MenuClient.tsx

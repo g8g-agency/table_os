@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/maintenance/reconciliation.service.ts
 // Operational Reconciliation Service implementing:

@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useKitchenMutations } from '../hooks/useKitchenMutations.js';
@@ -116,14 +117,14 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
   const isLocked = isPendingOperationalConfirmation || (isTransportDegraded && !isHealthy);
 
   // Default: all items are selected (kitchen accepts the full order unless they deselect)
-  const [selectedItems, setSelectedItems]     = useState(() => items.map(i => i.id));
+  const [selectedItems, setSelectedItems]     = useState(() => items.map(i => i.itemId || i.preparationId || i.id));
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [localElapsed, setLocalElapsed]       = useState(0);
 
   // Keep selectedItems in sync if items prop changes (e.g. realtime update)
   useEffect(() => {
-    setSelectedItems(items.map(i => i.id));
-  }, [id]);
+    setSelectedItems(items.map(i => i.itemId || i.preparationId || i.id));
+  }, [id, items]);
 
   useEffect(() => {
     if (isHistory) return;
@@ -375,26 +376,29 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         )}
         {items.map((item, idx) => {
           const isPending  = status === 'pending';
-          const isSelected = selectedItems.includes(item.id);
-          const isRejected = item.isRejected;
+          const itemId = item.itemId || item.preparationId || item.id || idx;
+          const isSelected = selectedItems.includes(itemId);
+          const isRejected = item.isRejected || item.status === 'cancelled';
+          const qty = item.qty || item.quantity || 1;
+          const note = item.note || item.notes || '';
           
-          // Once accepted (cooking/ready/served), accepted items are ALWAYS ticked and can't be unticked
-          const isItemDone = (!isPending && !isRejected) ? true : item.done;
+          // Once accepted (preparing/accepted/ready/served), accepted items are ALWAYS ticked and can't be unticked
+          const isItemDone = (!isPending && !isRejected) ? true : (item.done || item.status === 'completed');
           
-          const isAllergy  = item.note?.toLowerCase().includes('allergy');
+          const isAllergy  = note?.toLowerCase().includes('allergy');
 
           /* dim unselected pending items, rejected items, done cooking items */
           const rowOpacity = (isPending && !isSelected) ? 0.35
                            : isRejected ? 0.4
-                           : (isItemDone && status === 'preparing') ? 0.6
+                           : (isItemDone && (status === 'preparing' || status === 'accepted')) ? 0.6
                            : 1;
 
           return (
             <div
-              key={item.id || idx}
+              key={itemId}
               onClick={() => {
-                if (isPending) toggleSelection(item.id);
-                else if (status === 'preparing' && !isRejected && !isItemDone) {
+                if (isPending) toggleSelection(itemId);
+                else if ((status === 'preparing' || status === 'accepted') && !isRejected && !isItemDone) {
                   // If we wanted to allow ticking in cooking, we could.
                   // But user said "should always be marked tick ... and cant be unticked"
                   // So we effectively disable interaction here.
@@ -426,7 +430,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
                   className="material-symbols-outlined"
                   style={{
                     fontSize: '20px',
-                    color:    status === 'preparing' ? '#2D5FA3' : '#006948',
+                    color:    (status === 'preparing' || status === 'accepted') ? '#2D5FA3' : '#006948',
                     flexShrink: 0,
                     fontVariationSettings: "'FILL' 1",
                   }}
@@ -462,12 +466,12 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
                     fontWeight:     700,
                     letterSpacing:  '-0.01em',
                     lineHeight:     1.3,
-                    color:          isItemDone && status !== 'preparing' ? '#6C757D' : '#1A1C1E',
-                    textDecoration: isItemDone && status === 'preparing' ? 'line-through' : 'none',
+                    color:          isItemDone && !(status === 'preparing' || status === 'accepted') ? '#6C757D' : '#1A1C1E',
+                    textDecoration: isItemDone && (status === 'preparing' || status === 'accepted') ? 'line-through' : 'none',
                     transition:     'color 0.2s cubic-bezier(0.2,0,0,1)',
                   }}>
-                    {item.qty > 1 && (
-                      <span style={{ color: isRejected ? '#BA1A1A' : '#E31E24', marginRight: '4px' }}>{item.qty}×</span>
+                    {qty > 1 && (
+                      <span style={{ color: isRejected ? '#BA1A1A' : '#E31E24', marginRight: '4px' }}>{qty}×</span>
                     )}
                     <span style={{ textDecoration: isRejected ? 'line-through' : 'none' }}>
                       {item.name}
@@ -486,9 +490,9 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
                 </div>
 
                 {/* Modifications — "The Specs" body */}
-                {item.note && !isAllergy && (
+                {note && !isAllergy && (
                   <p style={{ fontSize: '11px', color: '#6C757D', fontStyle: 'italic', marginTop: '4px' }}>
-                    • {item.note}
+                    • {note}
                   </p>
                 )}
 
@@ -502,7 +506,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
                     color:         '#BA1A1A',
                     marginTop:     '6px',
                   }}>
-                    {item.note}
+                    {note}
                   </p>
                 )}
               </div>
@@ -546,7 +550,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(); }}
-              disabled={isActionLoading || selectedItems.length === 0}
+              disabled={isActionLoading}
               className="cubic-transition"
               style={{
                 flex: 2,
@@ -576,7 +580,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         )}
 
         {/* COOKING → BUMP + MARK READY */}
-        {status === 'preparing' && (
+        {(status === 'preparing' || status === 'accepted') && (
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(); }}

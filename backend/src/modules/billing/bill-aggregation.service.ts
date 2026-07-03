@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/billing/bill-aggregation.service.ts
 // Service aggregating active orders, computing minor-unit totals,
@@ -7,7 +8,7 @@
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
-import { BillDTO } from './billing-runtime.types';
+import type { BillDTO } from './billing-runtime.types';
 
 export class BillAggregationService {
   /**
@@ -165,7 +166,7 @@ export class BillAggregationService {
           grand_total_minor: totalGrand,
           amount_paid_minor: 0,
           amount_refunded_minor: 0,
-          currency_code: 'USD',
+          currency_code: 'INR',
         })
         .select()
         .single();

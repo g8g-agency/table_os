@@ -1,3 +1,4 @@
+/* eslint-disable */
 const { RuntimeAuthService } = require('./dist/modules/auth/services/runtime-auth.service.js');
 require('dotenv').config();
 

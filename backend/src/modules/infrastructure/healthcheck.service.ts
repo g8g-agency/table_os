@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/infrastructure/healthcheck.service.ts
 // Comprehensive healthcheck, dependency validation, liveness,

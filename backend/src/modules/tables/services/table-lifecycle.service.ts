@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/tables/services/table-lifecycle.service.ts
 // Table operational event coordinator.

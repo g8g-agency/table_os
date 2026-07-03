@@ -287,7 +287,7 @@ router.post('/payments/charge', authenticate, async (req: Request, res: Response
       payment_provider,
       payment_reference,
       payment_amount_minor: Number(payment_amount_minor || 0),
-      currency_code: currency_code || 'USD',
+      currency_code: currency_code || 'INR',
       idempotency_key,
       replay_generation: Number(replay_generation || 0),
     });
@@ -388,7 +388,7 @@ router.post('/payments/webhook', async (req: Request, res: Response, next: NextF
       provider: provider || 'STRIPE',
       reference,
       amountMinor: Number(amount_minor || 0),
-      currencyCode: currency_code || 'USD',
+      currencyCode: currency_code || 'INR',
       idempotencyKey: idempotency_key,
     });
 

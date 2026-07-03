@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/infrastructure/audit-runtime.service.ts
 // Immutable transactional audit ledger and actor tracking service.

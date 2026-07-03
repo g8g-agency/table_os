@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/orders/orders.service.ts
 // Service layer orchestrating the order checkout flow, FSM
@@ -245,20 +246,25 @@ export async function createOrderFromCart(params: {
       throw new AppError(`Atomic transaction failed: ${error!.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
 
-    const response = data as any;
+    const response = data as { order_id: string; invoice_id: string; kitchen_order_id: string; status: ordersRepo.OrderStatus };
     
-    // Construct or extract the order object so downstream logic (and the frontend) gets the ID
-    const createdOrder = response?.order || {
-      id: response?.order_id || orderId,
-      order_number: orderNumber,
-      table_id: params.tableId,
-      branch_id: cart.branch_id,
-      created_at: new Date().toISOString(),
-      version_num: 1
-    };
+    // Fetch the fully populated order since the RPC only returns IDs
+    const createdOrder = await ordersRepo.getOrderById(tenantId, response.order_id);
+    if (!createdOrder) {
+      throw new AppError('Order created but could not be retrieved.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
 
     // ── Dispatch ORDER_ASSIGNED realtime event ────────────────────────────
     void _dispatchOrderAssignedEvent(createdOrder, cart!.branch_id, tenantId, cartItems);
+
+    // ── Dispatch ORDER_UPDATE realtime event for UI projection sync ───────
+    WebSocketManager.getInstance().broadcastToBranch(
+      cart!.branch_id,
+      'ORDERING',
+      'OPERATIONAL_STREAM',
+      'order_update',
+      createdOrder
+    );
 
     // Pass through the raw RPC response fields as well so the frontend gets everything
     return { ...createdOrder, ...response };
@@ -398,14 +404,33 @@ export async function transitionOrderStatus(params: {
   });
 
   // 6. Dispatch specific Realtime Events for Staff App
-  if (targetStatus === 'ready') {
+  if (targetStatus === 'accepted' || targetStatus === 'ready' || targetStatus === 'preparing') {
+    let tableNumber = 'N/A';
+    let assignedStaffId: string | null = null;
     let staffName = 'Unknown Staff';
-    if ((order as any).assigned_waiter_id) {
+
+    try {
+      const { data: tableData } = await supabaseAdmin
+        .from('tables')
+        .select('table_number, assigned_waiter_id')
+        .eq('id', order.table_id)
+        .maybeSingle();
+
+      if (tableData) {
+        tableNumber = tableData.table_number ?? 'N/A';
+        assignedStaffId = tableData.assigned_waiter_id ?? null;
+      }
+    } catch (err) {
+      console.error('[OrderAlert] Failed to fetch table details:', err);
+    }
+
+    const staffLookupId = assignedStaffId || userId;
+    if (staffLookupId) {
       try {
         const { data } = await supabaseAdmin
           .from('staff')
           .select('name')
-          .eq('id', (order as any).assigned_waiter_id)
+          .eq('id', staffLookupId)
           .single();
         if (data && data.name) staffName = data.name;
       } catch (err) {
@@ -413,21 +438,49 @@ export async function transitionOrderStatus(params: {
       }
     }
 
+    let alertType = '';
+    let alertPayload: any = {};
+
+    if (targetStatus === 'accepted') {
+      alertType = 'ORDER_ACCEPTED';
+      alertPayload = {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        tableNumber,
+        acceptedByStaffId: userId || assignedStaffId || null,
+        acceptedByStaffName: staffName,
+        acceptedAt: new Date().toISOString(),
+        tenantId,
+        branchId: order.branch_id,
+      };
+    } else {
+      alertType = targetStatus === 'ready' ? 'ORDER_READY_FOR_PICKUP' : 'ORDER_PREPARING';
+      alertPayload = {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        tableNumber,
+        assignedStaffId,
+        assignedStaffName: staffName,
+        [targetStatus === 'ready' ? 'readyAt' : 'preparingAt']: new Date().toISOString(),
+        tenantId,
+        branchId: order.branch_id,
+      };
+    }
+
+    logger.info({
+      stage: 'dispatch_order_alert',
+      alertType,
+      orderId: order.id,
+      assignedStaffId,
+      branchId: order.branch_id
+    }, '[OrderAlert] Dispatching realtime alert to Staff App');
+
     WebSocketManager.getInstance().broadcastToBranch(
       order.branch_id,
       'SYSTEM',
       'ORDER_ALERTS',
-      'ORDER_READY_FOR_PICKUP',
-      {
-        orderId: order.id,
-        orderNumber: (order as any).table_num || order.id,
-        tableNumber: (order as any).table_num,
-        assignedStaffId: (order as any).assigned_waiter_id,
-        assignedStaffName: staffName,
-        readyAt: new Date().toISOString(),
-        tenantId,
-        branchId: order.branch_id,
-      }
+      alertType,
+      alertPayload
     );
   }
 

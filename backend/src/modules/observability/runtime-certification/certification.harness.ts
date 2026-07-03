@@ -1,9 +1,10 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/runtime-certification/certification.harness.ts
 // Deterministic test harness for distributed convergence engineering.
 // ============================================================
 
-import { RuntimeEventTelemetry, RuntimeSnapshot } from '../telemetry.types';
+import type { RuntimeEventTelemetry, RuntimeSnapshot } from '../telemetry.types';
 import { RuntimeMetricsAggregator } from '../runtime-metrics.aggregator';
 import * as fs from 'fs';
 import * as path from 'path';

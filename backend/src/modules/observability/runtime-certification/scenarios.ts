@@ -3,7 +3,7 @@
 // Deterministic certification scenarios for runtime correctness.
 // ============================================================
 
-import { CertificationScenario, CertificationHarness } from './certification.harness';
+import type { CertificationScenario, CertificationHarness } from './certification.harness';
 
 export const ScenarioA_DisconnectDuringReplay: CertificationScenario = {
   id: 'SCENARIO_A_DISCONNECT_REPLAY',

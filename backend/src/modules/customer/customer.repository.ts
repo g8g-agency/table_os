@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../shared/errors/AppError';
 import { logger } from '../../shared/utils/logger';

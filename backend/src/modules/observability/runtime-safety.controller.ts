@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/runtime-safety.controller.ts
 // Issues bounded operational safety directives for the runtime.

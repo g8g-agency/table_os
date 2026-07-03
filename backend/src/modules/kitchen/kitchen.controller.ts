@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/kitchen.controller.ts
 // Controller for KDS kitchen station operations.

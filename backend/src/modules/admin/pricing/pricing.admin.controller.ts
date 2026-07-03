@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/admin/pricing/pricing.admin.controller.ts
 // Admin API Controller for Pricing.

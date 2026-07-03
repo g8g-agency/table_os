@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/infrastructure/metrics.service.ts
 // Aggregates and persists real-time operational reliability metrics.

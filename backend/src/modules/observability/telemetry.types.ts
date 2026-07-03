@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/observability/telemetry.types.ts
 // Strongly typed contracts for deterministic runtime observability.

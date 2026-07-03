@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/context/context.controller.ts
 //

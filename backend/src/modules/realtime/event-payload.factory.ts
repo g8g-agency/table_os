@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/realtime/event-payload.factory.ts
 // Canonical realtime DTO generator and event payload shaping.

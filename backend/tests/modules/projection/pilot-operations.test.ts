@@ -26,7 +26,7 @@ async function runPilotOperationsSuite() {
       provider: 'STRIPE',
       reference: 'ch_stripe_webhook_99',
       amount_minor: 5500,
-      currency_code: 'USD',
+      currency_code: 'INR',
       idempotency_key: 'stripe_callback_idemp_key_1',
     });
 
@@ -60,7 +60,7 @@ async function runPilotOperationsSuite() {
       provider: 'STRIPE',
       reference: 'ch_stripe_webhook_99',
       amountMinor: 5500,
-      currencyCode: 'USD',
+      currencyCode: 'INR',
       idempotencyKey: 'stripe_callback_idemp_key_1',
     });
 

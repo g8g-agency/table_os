@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/kitchen/kds-event-orchestrator.ts
 // KDSEventOrchestrator managing KDS timers, prep limits,

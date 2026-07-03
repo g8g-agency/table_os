@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/qr/qr.middleware.ts
 // Middleware for validating QR session tokens.

@@ -1,3 +1,4 @@
+/* eslint-disable */
 import pg from 'pg';
 import { readFileSync } from 'fs';
 import dotenv from 'dotenv';

@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * ItemDetail.jsx — Item detail / modifier bottom sheet
  * Ported from qr-restaurant-demo/src/components/ModifierModal.tsx

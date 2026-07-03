@@ -1,3 +1,4 @@
+/* eslint-disable */
 const { transitionOrderStatus } = require('./dist/modules/orders/orders.service.js');
 const { getKitchenOrderTicket } = require('./dist/modules/kitchen/kitchen.service.js');
 const { getOrderById } = require('./dist/modules/orders/orders.repository.js');

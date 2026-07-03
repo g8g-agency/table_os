@@ -3,7 +3,7 @@
 // Adjacency indexing and cursor traversal for telemetry graphs.
 // ============================================================
 
-import { RuntimeEventTelemetry } from './telemetry.types';
+import type { RuntimeEventTelemetry } from './telemetry.types';
 
 export interface GraphCursorResponse {
   nodes: RuntimeEventTelemetry[];

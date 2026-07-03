@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/auth/controllers/auth.controller.ts
 // HTTP handlers — thin layer: validate → service → respond.

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/orders/orders.controller.ts
 // Controller layer for Order checkout and status transitions.

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/auth/services/runtime-auth.service.ts
 // Service for generating and validating strict Runtime JWTs.

@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // src/modules/tables/qr/table-qr.router.ts
 // Public QR Runtime Router

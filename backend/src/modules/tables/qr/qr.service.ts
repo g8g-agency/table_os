@@ -140,13 +140,18 @@ export async function resolveQrSession(
 
   const existingSession = await qrRepo.findActiveSessionByTable(payload.tenant_id, payload.table_id);
   if (existingSession) {
-    return {
-      session_id: existingSession.id,
-      session_token: existingSession.session_token,
-      branch_id: existingSession.branch_id,
-      table_id: existingSession.table_id,
-      expires_at: existingSession.expires_at,
-    };
+    if (new Date(existingSession.expires_at).getTime() > Date.now()) {
+      return {
+        session_id: existingSession.id,
+        session_token: existingSession.session_token,
+        branch_id: existingSession.branch_id,
+        table_id: existingSession.table_id,
+        expires_at: existingSession.expires_at,
+      };
+    } else {
+      // Deactivate the expired session so a new one is created below
+      await qrRepo.updateSessionStatus(existingSession.tenant_id, existingSession.id, 'expired', { expires_at: existingSession.expires_at });
+    }
   }
 
   // Table status is no longer mutated directly — runtime state is derived from projections.

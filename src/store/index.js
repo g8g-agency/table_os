@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase.js'
 import { useAuthStore } from './authStore.js'

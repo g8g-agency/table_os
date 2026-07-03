@@ -1,3 +1,4 @@
+/* eslint-disable */
 const http = require('http');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();

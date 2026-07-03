@@ -5,7 +5,7 @@ const ISO8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}
 export const CreateMenuItemPriceSchema = z.object({
   menu_item_id: z.string().uuid(),
   pricing_tier: z.string().min(1).max(50).optional().default('base'),
-  currency_code: z.string().length(3).toUpperCase().regex(/^[A-Z]{3}$/, 'Must be valid ISO-4217').optional().default('USD'),
+  currency_code: z.string().length(3).toUpperCase().regex(/^[A-Z]{3}$/, 'Must be valid ISO-4217').optional().default('INR'),
   amount_minor: z.number().int().min(0, 'Amount must be positive integer (minor units)'),
   priority: z.number().int().min(0).max(1000).optional().default(0),
   effective_from: z.string().regex(ISO8601Regex, 'Must be valid ISO8601 UTC timestamp').optional(),
@@ -50,6 +50,6 @@ export const PricingListQuerySchema = z.object({
 
 export const ResolvePriceQuerySchema = z.object({
   menu_item_id: z.string().uuid(),
-  currency_code: z.string().length(3).toUpperCase().regex(/^[A-Z]{3}$/).optional().default('USD'),
+  currency_code: z.string().length(3).toUpperCase().regex(/^[A-Z]{3}$/).optional().default('INR'),
   as_of: z.string().regex(ISO8601Regex, 'Must be valid ISO8601 UTC timestamp').optional(),
 });

@@ -63,7 +63,7 @@ export const CreateBranchPriceOverrideSchema = z.object({
   branch_id: z.string().uuid('branch_id must be a valid UUID'),
   menu_item_id: z.string().uuid('menu_item_id must be a valid UUID'),
   price_minor: z.number().int().nonnegative('price_minor must be a non-negative integer'),
-  currency: z.string().length(3, 'currency must be a 3-character ISO code (e.g. USD)'),
+  currency: z.string().length(3, 'currency must be a 3-character ISO code (e.g. INR)'),
   starts_at: z.string().datetime({ message: 'starts_at must be a valid ISO 8601 UTC timestamp' }),
   ends_at: z.string().datetime({ message: 'ends_at must be a valid ISO 8601 UTC timestamp' }).nullable().optional(),
 }).refine((data) => {
