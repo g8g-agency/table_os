@@ -5,7 +5,7 @@ import type { CreateGuestSessionDto } from '../guest-sessions.dtos';
 
 export class GuestSessionRepository {
   static async createSession(
-    dto: CreateGuestSessionDto & { expires_at: string }
+    dto: CreateGuestSessionDto & { expires_at: string | null }
   ): Promise<GuestSession> {
     // 1. Create or ensure customer identity first
     const { error: identityError } = await supabaseAdmin
@@ -33,6 +33,7 @@ export class GuestSessionRepository {
         session_token: crypto.randomUUID(),
         guest_identifier: dto.customer_identity_id,
         is_active: true,
+        qr_code_id: dto.qr_code_id ?? null,
         expires_at: dto.expires_at,
         session_data: {
           device_fingerprints: [dto.device_fingerprint],
@@ -48,6 +49,20 @@ export class GuestSessionRepository {
     if (error) {
       logger.error({ err: error, dto }, 'Failed to create guest session in repo');
       throw new Error(`[GuestSessionRepo] createSession failed: ${error.message}`);
+    }
+    return data;
+  }
+
+  static async findSessionByToken(sessionToken: string): Promise<GuestSession | null> {
+    const { data, error } = await supabaseAdmin
+      .from('guest_sessions')
+      .select('*')
+      .eq('session_token', sessionToken)
+      .maybeSingle();
+
+    if (error) {
+      logger.error({ err: error, sessionToken }, 'findSessionByToken failed');
+      throw new Error(`[GuestSessionRepo] findSessionByToken: ${error.message}`);
     }
     return data;
   }

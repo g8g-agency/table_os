@@ -40,7 +40,6 @@ export default function OrderTracking() {
   
   const liveOrder = useOrderStore(state => state.liveOrders.find(o => o.id === resolvedOrderId))
   const [loading, setLoading] = useState(true)
-  const [localElapsed, setLocalElapsed] = useState(0)
   const [paymentLoading, setPaymentLoading] = useState(false)
   const [paymentDone, setPaymentDone] = useState(false)
   
@@ -123,18 +122,6 @@ export default function OrderTracking() {
     return () => window.removeEventListener('touchstart', unlock);
   }, []);
 
-  // Live elapsed ticker — counts up from order.created_at
-  useEffect(() => {
-    if (!order?.created_at) return
-    const start = new Date(order.created_at).getTime()
-    const tick = () => {
-      setLocalElapsed(Math.floor((Date.now() - start) / 1000))
-    }
-    tick()
-    const interval = setInterval(tick, 1000)
-    return () => clearInterval(interval)
-  }, [order?.created_at])
-
   // No auto-redirect on served — show Thank You screen instead
   // Stop on rejected — no redirect
 
@@ -171,13 +158,7 @@ export default function OrderTracking() {
   }
   const currentStep = stepIndex[orderStatus] ?? 1
 
-  // ETA calculation — item-count-based
   const orderItemsList = order?.order_items || []
-  const itemCount = orderItemsList.length
-  const baseMins = Math.min(8 + (itemCount - 1) * 4, 35)
-  const etaSeconds = Math.max(0, (baseMins * 60) - localElapsed)
-  const etaMinutes = Math.ceil(etaSeconds / 60)
-
   // Bill totals
   const subtotal = orderItemsList.reduce((sum, item) =>
     sum + ((item.unit_price || 0) * (item.qty || 0)), 0)
@@ -320,6 +301,50 @@ export default function OrderTracking() {
 
       <main style={{ flex: 1, paddingBottom: 96 }}>
         
+        {/* DEV TOOLS */}
+        {import.meta.env.DEV && order && (
+          <div style={{
+            margin: '16px',
+            padding: '12px',
+            border: '2px dashed #F0883E',
+            borderRadius: '8px',
+            background: 'rgba(240,136,62,0.1)'
+          }}>
+            <p style={{ fontSize: 11, color: '#F0883E', margin: '0 0 8px 0', fontWeight: 'bold' }}>
+              🛠 DEV TOOLS
+            </p>
+            <p style={{ fontSize: 10, color: '#F0883E', margin: '0 0 8px 0' }}>
+              Order: {order.id.slice(0, 8)}...
+            </p>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/v1/dev/fake-payment/${order.id}`, { method: 'POST' });
+                  if (!res.ok) {
+                    const text = await res.text();
+                    alert('Fake payment failed: ' + text);
+                    return;
+                  }
+                  window.location.href = `/session-ended?orderId=${order.id}`;
+                } catch (e) {
+                  alert('Error: ' + e.message);
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: '#F0883E',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              💳 Fake Payment (Complete Order)
+            </button>
+          </div>
+        )}
         {/* 2. STATUS BAR */}
         <div style={{
           background: ['rejected', 'cancelled'].includes(orderStatus) ? '#FEF2F2' : '#F0FDF4',
@@ -344,8 +369,7 @@ export default function OrderTracking() {
           {!['rejected', 'cancelled', 'served', 'delivered', 'completed'].includes(orderStatus) && (
             <div style={{ background: '#DCFCE7', borderRadius: 999, padding: '2px 10px', color: '#16A34A', fontSize: 12, fontWeight: 500 }}>
               {orderStatus === 'ready' ? 'Ready to serve! ✅'
-               : ['cooking', 'preparing'].includes(orderStatus) && etaMinutes > 1 ? `~${etaMinutes} min remaining`
-               : ['cooking', 'preparing'].includes(orderStatus) ? 'Almost ready! 🍳'
+               : ['cooking', 'preparing'].includes(orderStatus) ? 'Kitchen is preparing 🍳'
                : 'Waiting for kitchen...'}
             </div>
           )}
@@ -355,7 +379,6 @@ export default function OrderTracking() {
         <div style={{ position: 'relative', height: 100, margin: '0 16px 16px', borderRadius: 16, overflow: 'hidden', background: 'linear-gradient(135deg, #111D35, #E31E24)' }}>
           <div style={{ position: 'absolute', bottom: 16, left: 16 }}>
             <h2 style={{ color: 'white', fontSize: 18, fontWeight: 700, margin: 0 }}>The Grand Spice</h2>
-            <p style={{ color: 'white', fontSize: 12, opacity: 0.6, margin: '4px 0 0' }}>Estimated arrival: 5-7 mins</p>
           </div>
         </div>
 

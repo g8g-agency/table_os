@@ -77,6 +77,22 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
        const order = await ordersRepo.getOrderById(tenantId, ticketDetails.order_id);
        if (!order) throw new AppError('Parent order not found', 404, ErrorCode.NOT_FOUND);
 
+       const TERMINAL_STATES = ['completed', 'delivered', 'cancelled'];
+       if (TERMINAL_STATES.includes(order.status)) {
+         void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
+         return res.status(200).json({
+           success: true,
+           already_resolved: true,
+           final_status: order.status,
+           message: `Order was already ${order.status} — removing from kitchen display`,
+           mutation_ack: {
+             mutation_id: ctx.mutation_id,
+             acknowledged_at: new Date().toISOString(),
+             server_cart_revision: ctx.expected_cart_revision,
+           }
+         });
+       }
+
        const parentOrder = await ordersService.transitionOrderStatus({
          tenantId,
          orderId: ticketDetails.order_id,

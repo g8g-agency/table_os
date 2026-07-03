@@ -7,6 +7,7 @@ export const CreateGuestSessionSchema = z.object({
   device_fingerprint: z.string().min(8, { message: 'device_fingerprint must be at least 8 characters' }),
   snapshot_id: z.string().uuid().optional(),
   customer_identity_id: z.string().uuid(),
+  qr_code_id: z.string().uuid().optional(),
 });
 
 export type CreateGuestSessionDto = z.infer<typeof CreateGuestSessionSchema>;

@@ -40,13 +40,13 @@ export class GuestSessionService {
       );
     }
 
-    // 3. No active session. Construct new session with deterministic expiration (e.g. 4 hours from now)
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    // 3. No active session. Construct new session without hard expiration (relies on is_active)
     logger.info({ tableId: dto.table_id }, 'Creating new table-bound guest session');
     
     return GuestSessionRepository.createSession({
       ...dto,
-      expires_at: expiresAt,
+      expires_at: null,
+      qr_code_id: dto.qr_code_id ?? undefined,
     });
   }
 
@@ -54,10 +54,7 @@ export class GuestSessionService {
     const session = await GuestSessionRepository.findSessionById(tenantId, sessionId);
     if (!session) return false;
     
-    const expiresAt = session.session_data?.expires_at;
-    const isExpired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
-    
-    if (isExpired || !session.is_active) {
+    if (!session.is_active) {
       return false;
     }
 

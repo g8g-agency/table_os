@@ -358,7 +358,7 @@ export default function KitchenDisplay() {
             }
           }
         } else if (eventType === 'UPDATE') {
-          if (['served', 'cancelled', 'paid'].includes(newRow.status)) {
+          if (['completed', 'delivered', 'cancelled'].includes(newRow.status)) {
             setOrders(prev => prev.filter(o => o.id !== (newRow.order_id || newRow.id)))
           } else {
             const orderId = newRow.order_id || newRow.id;

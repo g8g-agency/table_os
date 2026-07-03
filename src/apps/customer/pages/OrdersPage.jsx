@@ -6,6 +6,8 @@ import { SupabaseTransportAdapter } from '../../../runtime/transport/SupabaseTra
 import { supabase } from '../../../lib/supabase'
 import { BottomNav } from '../components/BottomNav'
 import { getQrSession } from '../utils/qrSession'
+import ReviewModal from '../components/ReviewModal'
+import { useRef } from 'react'
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
 
@@ -21,6 +23,9 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [errorState, setErrorState] = useState(null)
+  
+  const [reviewOrderId, setReviewOrderId] = useState(null)
+  const prevOrdersRef = useRef([])
 
   useEffect(() => {
     if (!session.name || !tableId || !activeTenantId) {
@@ -96,6 +101,22 @@ export default function OrdersPage() {
     };
   }, [tableId, activeTenantId, session.name]);
 
+  useEffect(() => {
+    const newCompletedOrders = orders.filter(o => 
+      (o.status === 'served' || o.status === 'completed') &&
+      !localStorage.getItem(`reviewed_${o.id}`) &&
+      prevOrdersRef.current.some(po => po.id === o.id && po.status !== 'served' && po.status !== 'completed')
+    )
+
+    if (newCompletedOrders.length > 0) {
+      setTimeout(() => {
+        setReviewOrderId(newCompletedOrders[0].id)
+      }, 2000)
+    }
+
+    prevOrdersRef.current = orders
+  }, [orders])
+
   if (!session.name) {
     return (
       <div style={{ padding: '60px 24px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
@@ -160,9 +181,19 @@ export default function OrdersPage() {
       {!errorState && !loading && orders.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {orders.map(order => (
-            <OrderCard key={order.id} order={order} />
+            <OrderCard key={order.id} order={order} onReview={() => setReviewOrderId(order.id)} />
           ))}
         </div>
+      )}
+
+      {reviewOrderId && (
+        <ReviewModal
+          isOpen={true}
+          onClose={() => setReviewOrderId(null)}
+          orderId={reviewOrderId}
+          tenantId={activeTenantId}
+          branchId={orders.find(o => o.id === reviewOrderId)?.branch_id}
+        />
       )}
 
       <BottomNav />
@@ -170,9 +201,8 @@ export default function OrdersPage() {
   )
 }
 
-function OrderCard({ order }) {
+function OrderCard({ order, onReview }) {
   const navigate = useNavigate()
-  const [timeRemaining, setTimeRemaining] = useState('')
   const isActive = ['pending', 'accepted', 'preparing', 'ready'].includes(order.status)
 
   // Issue 10: download invoice as plain-text
@@ -217,25 +247,6 @@ function OrderCard({ order }) {
     URL.revokeObjectURL(url)
   }
   
-  useEffect(() => {
-    if (!order.ends_at || !isActive) {
-      setTimeRemaining('')
-      return
-    }
-
-    const interval = setInterval(() => {
-      const diff = new Date(order.ends_at) - new Date()
-      if (diff <= 0) {
-        setTimeRemaining('Due now')
-      } else {
-        const m = Math.floor(diff / 60000)
-        const s = Math.floor((diff % 60000) / 1000)
-        setTimeRemaining(`${m}m ${s < 10 ? '0' : ''}${s}s`)
-      }
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [order.ends_at, isActive])
 
   const statusMap = {
     pending:  { bg: 'rgba(27,43,75,0.05)', color: '#E31E24', label: 'Placed', icon: 'check_circle' },
@@ -292,15 +303,6 @@ function OrderCard({ order }) {
         </div>
       </div>
 
-      {isActive && timeRemaining && (
-        <div style={{ background: '#FFF7ED', borderRadius: 12, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#E31E24' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>timer</span>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>Estimated Arrival</span>
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#E31E24' }}>{timeRemaining}</span>
-        </div>
-      )}
 
       {order.order_items && (
         <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -324,19 +326,47 @@ function OrderCard({ order }) {
         </div>
       )}
 
-      {/* Issue 10: Download Invoice button */}
-      <button
-        onClick={(e) => { e.stopPropagation(); downloadInvoice() }}
-        style={{
-          background: 'white', border: '1.5px solid #E31E24',
-          borderRadius: '10px', padding: '8px 14px',
-          color: '#E31E24', fontSize: '12px', fontWeight: '600',
-          cursor: 'pointer', display: 'flex', alignItems: 'center',
-          gap: '6px', marginTop: '10px'
-        }}
-      >
-        ⬇ Download Invoice
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        {/* Issue 10: Download Invoice button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); downloadInvoice() }}
+          style={{
+            background: 'white', border: '1.5px solid #E31E24',
+            borderRadius: '10px', padding: '8px 14px',
+            color: '#E31E24', fontSize: '12px', fontWeight: '600',
+            cursor: 'pointer', display: 'flex', alignItems: 'center',
+            gap: '6px', flex: 1, justifyContent: 'center'
+          }}
+        >
+          ⬇ Download Invoice
+        </button>
+
+        {/* Feature 3: Review Button */}
+        {(order.status === 'completed' || order.status === 'served') && (
+          localStorage.getItem(`reviewed_${order.id}`) ? (
+            <div style={{
+              background: '#F3F4F6', borderRadius: '10px', padding: '8px 14px',
+              color: '#6C757D', fontSize: '12px', fontWeight: '600',
+              display: 'flex', alignItems: 'center', gap: '6px', flex: 1, justifyContent: 'center'
+            }}>
+              ✓ Reviewed
+            </div>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReview(); }}
+              style={{
+                background: '#E31E24', border: 'none',
+                borderRadius: '10px', padding: '8px 14px',
+                color: 'white', fontSize: '12px', fontWeight: '600',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                gap: '6px', flex: 1, justifyContent: 'center'
+              }}
+            >
+              ⭐ Rate Order
+            </button>
+          )
+        )}
+      </div>
     </div>
   )
 }

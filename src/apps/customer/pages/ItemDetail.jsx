@@ -11,7 +11,7 @@ import { useMenuStore, useCartStore } from '../../../store/index'
 import { motion } from 'framer-motion'
 
 export default function ItemDetail() {
-  const { itemId } = useParams()
+  const { id: itemId } = useParams()
   const navigate = useNavigate()
   const [item, setItem] = useState(null)
   const [loading, setLoading] = useState(true)

@@ -32,6 +32,56 @@ const NAV_SCROLL_THRESHOLD = 8
 
 const CATEGORY_ORDER = ['Starters', 'Mains', 'Sides', 'Desserts', 'Beverages']
 
+const OFFERS = [
+  { id: 1, title: '20% off on weekdays', subtitle: 'Valid from 12 PM to 5 PM', gradient: 'linear-gradient(135deg, #FF9A9E, #FECFEF)' },
+  { id: 2, title: 'Free dessert', subtitle: 'On orders above ₹500', gradient: 'linear-gradient(135deg, #A1C4FD, #C2E9FB)' },
+  { id: 3, title: 'Happy Hour', subtitle: '1+1 on all beverages', gradient: 'linear-gradient(135deg, #84FAB0, #8FD3F4)' }
+]
+
+function OfferCarousel() {
+  const [index, setIndex] = useState(0)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((prev) => (prev + 1) % OFFERS.length)
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <div style={{ padding: '16px 16px 0', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: 120, width: '100%', borderRadius: 12, overflow: 'hidden' }}>
+        <motion.div
+          animate={{ x: `-${index * 100}%` }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          style={{ display: 'flex', width: `${OFFERS.length * 100}%`, height: '100%' }}
+          drag="x"
+          dragConstraints={{ left: -((OFFERS.length - 1) * window.innerWidth), right: 0 }}
+          onDragEnd={(e, { offset, velocity }) => {
+            const swipe = offset.x
+            if (swipe < -50 && index < OFFERS.length - 1) setIndex(index + 1)
+            else if (swipe > 50 && index > 0) setIndex(index - 1)
+          }}
+        >
+          {OFFERS.map((offer) => (
+            <div key={offer.id} style={{ width: '100%', height: '100%', background: offer.gradient, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20, flexShrink: 0 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1A1C1E' }}>{offer.title}</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#4B5563', fontWeight: 500 }}>{offer.subtitle}</p>
+            </div>
+          ))}
+        </motion.div>
+        
+        {/* Pagination Dots */}
+        <div style={{ position: 'absolute', bottom: 12, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6 }}>
+          {OFFERS.map((_, i) => (
+            <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: i === index ? '#1A1C1E' : 'rgba(26,28,30,0.3)', transition: 'background 0.3s' }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Fly-to-cart: RAF-based so it works on every browser without CSS custom property issues ──
 function spawnFlyToCart(startX, startY) {
   // #cart-fab-btn only exists after first item is added (CartBar renders null on empty cart)
@@ -580,18 +630,6 @@ export default function MenuHome() {
       {/* Keyframe */}
       <style>{`@keyframes flyUp { to { transform: translateY(-40px); opacity: 0; } } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* QR context banner */}
-      {hasQrContext && (restaurantName || tableName) && (
-        <div style={{ background: '#e74c3c', color: 'white', padding: '12px 16px', textAlign: 'center' }}>
-          {restaurantName && (
-            <div style={{ fontWeight: 600, fontSize: 16 }}>{restaurantName}</div>
-          )}
-          {tableName && (
-            <div style={{ fontSize: 13, opacity: 0.9 }}>{tableName}</div>
-          )}
-        </div>
-      )}
-
       {menuError && (
         <div style={{ padding: '12px 16px', background: '#FEE2E2', color: '#B91C1C', fontSize: 13 }}>
           {menuError}
@@ -635,6 +673,9 @@ export default function MenuHome() {
           </button>
         </div>
       </header>
+
+      {/* ── OFFERS CAROUSEL ── */}
+      <OfferCarousel />
 
       {/* ── SEARCH & VEG ROW ── */}
       <div style={{
