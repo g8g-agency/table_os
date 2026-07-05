@@ -53,11 +53,16 @@ export async function getPartitionLag(partitionKey: string): Promise<PartitionHe
 
   const finalDlqCount = dlqError ? 0 : (dlqCount ?? 0);
 
-  // 3. Resolve alarm limits
+  // 3. Resolve alarm limits (configurable via environment variables)
+  const maxRedAgeSec = Number(process.env.QUEUE_ALERT_RED_AGE_SEC || 60);
+  const maxRedCount = Number(process.env.QUEUE_ALERT_RED_COUNT || 500);
+  const maxYellowAgeSec = Number(process.env.QUEUE_ALERT_YELLOW_AGE_SEC || 15);
+  const maxYellowCount = Number(process.env.QUEUE_ALERT_YELLOW_COUNT || 100);
+
   let alertLevel: 'GREEN' | 'YELLOW' | 'RED' = 'GREEN';
-  if (oldestAgeSec > 60 || events.length > 500) {
+  if (oldestAgeSec > maxRedAgeSec || events.length > maxRedCount) {
     alertLevel = 'RED';
-  } else if (oldestAgeSec > 15 || events.length > 100) {
+  } else if (oldestAgeSec > maxYellowAgeSec || events.length > maxYellowCount) {
     alertLevel = 'YELLOW';
   }
 

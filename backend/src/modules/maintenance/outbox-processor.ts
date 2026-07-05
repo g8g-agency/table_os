@@ -11,6 +11,8 @@ import { EventPayloadFactory, type RealtimeEventType } from '../realtime/event-p
 import * as ordersRepo from '../orders/orders.repository';
 import * as tableRepo from '../tables/repositories/table.repository';
 import * as waiterCallRepo from '../waiter-call/waiter-call.repository';
+import { rebuildTableProjection } from '../tables/projections/table-runtime.projection';
+import { supabaseAdmin } from '../../config/supabase';
 import { logger } from '../../shared/utils/logger';
 
 export class OutboxProcessor {
@@ -41,6 +43,24 @@ export class OutboxProcessor {
   public static async processEvent(event: DispatchEvent): Promise<void> {
     const start = Date.now();
     const realtimeType = this.mapEventType(event.event_type);
+
+    if (event.event_type === 'table.session_expired') {
+      try {
+        const tableId = event.aggregate_id;
+        const tenantId = event.tenant_id;
+        // Purely trigger a rebuild from the source of truth, ignoring the payload
+        await rebuildTableProjection(supabaseAdmin, tenantId, tableId);
+        
+        await markEventDelivered(event.id, Date.now() - start);
+        logger.info({ eventId: event.id, tableId }, '[OutboxProcessor] Rebuilt projection for table.session_expired.');
+        return;
+      } catch (err: any) {
+        const elapsed = Date.now() - start;
+        logger.error({ err: err.message, eventId: event.id }, '[OutboxProcessor] Event dispatch failed during projection rebuild.');
+        await markEventFailed(event.id, err.message, elapsed);
+        throw err;
+      }
+    }
 
     if (!realtimeType) {
       // Unmapped event types (e.g. system logs or telemetry) are safely marked delivered immediately.

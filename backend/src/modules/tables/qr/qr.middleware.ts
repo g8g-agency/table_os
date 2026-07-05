@@ -26,8 +26,18 @@ function isUUID(str: string): boolean {
 
 export async function requireQrSession(req: Request, _res: Response, next: NextFunction): Promise<void> {
   try {
-    const token = (req.headers['x-qr-session-token'] as string | undefined) ??
-      (req.query.session_token as string | undefined);
+    const rawHeader = req.headers['x-qr-session-token'];
+    const rawQuery = req.query.session_token;
+    
+    logger.info({
+      path: req.path,
+      method: req.method,
+      rawHeader,
+      rawQuery,
+      allHeaders: req.headers
+    }, '--- RUNTIME DEBUG: requireQrSession called ---');
+
+    const token = (rawHeader as string | undefined) ?? (rawQuery as string | undefined);
 
     if (!token) {
       throw new AppError('Missing QR session token', 401, ErrorCode.UNAUTHORIZED);

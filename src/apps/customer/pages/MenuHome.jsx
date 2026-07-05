@@ -222,8 +222,10 @@ function AddButton({ item, onAdd, onCustomize, onAnimate }) {
 
 // ── Issue 7: MenuItemCard with flying dot animation ───────────────────────────
 function MenuItemCard({ item, idx, navigate, handleItemAdd }) {
-  const getAvailability = useAvailabilityStore(s => s.getAvailability)
-  const availability = getAvailability(item.id)
+  const availability = useAvailabilityStore(s => s.overlayByItemId[item.id] || {
+    is_available: true,
+    visibility_state: 'VISIBLE',
+  })
   const visibility = availability.visibility_state
 
   if (visibility === 'HIDDEN') return null;

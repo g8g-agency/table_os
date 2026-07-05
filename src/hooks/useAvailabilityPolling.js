@@ -6,60 +6,50 @@ import { useAvailabilityStore } from '../store/availabilityStore';
 export function useAvailabilityPolling({ tenantSlug, tenantId, branchId, intervalMs = 15000 }) {
   const setOverlayData = useAvailabilityStore(state => state.setOverlayData);
   const setStale = useAvailabilityStore(state => state.setStale);
-  const timeoutRef = useRef(null);
-  const isMounted = useRef(true);
-  const retryCount = useRef(0);
-  const MAX_RETRIES = 5;
+  const intervalRef = useRef(null);
+  const isFetching = useRef(false);
 
   useEffect(() => {
-    isMounted.current = true;
-    retryCount.current = 0;
-    
+    let isActive = true;
+
     // Safety check - we need these to poll
     if ((!tenantSlug && !tenantId) || !branchId) return;
 
-    const poll = async () => {
-      // If offline, don't poll
-      if (!navigator.onLine) {
-        if (isMounted.current) {
-           timeoutRef.current = setTimeout(poll, 10000); // Wait 10s then try again
-        }
-        return;
-      }
+    const fetchOverlay = async () => {
+      // Prevent overlapping fetches
+      if (isFetching.current) return;
+      if (!navigator.onLine) return;
 
+      isFetching.current = true;
       try {
         const data = await AvailabilityRepository.fetchAvailabilityOverlay({ tenantSlug, tenantId, branchId });
-        if (isMounted.current) {
+        if (isActive) {
           setOverlayData(data);
-          retryCount.current = 0; // reset on success
         }
       } catch (err) {
-        if (isMounted.current) {
+        if (isActive) {
           console.error('[Availability Polling] Failed to fetch:', err);
           setStale(err.message);
-          retryCount.current += 1;
         }
       } finally {
-        if (isMounted.current) {
-          if (retryCount.current >= MAX_RETRIES) {
-             console.warn('[Availability Polling] Max retries reached. Suspending polling.');
-             // Stop polling
-             return;
-          }
-          // Exponential backoff
-          const backoff = Math.min(intervalMs * Math.pow(2, retryCount.current), 60000);
-          timeoutRef.current = setTimeout(poll, backoff);
+        if (isActive) {
+          isFetching.current = false;
         }
       }
     };
 
     // Kick off initial fetch immediately
-    poll();
+    fetchOverlay();
+
+    // Set up strict interval to guarantee no cascading polling loops
+    // Math.max ensures we never poll faster than 5 seconds even if misconfigured
+    const safeInterval = Math.max(intervalMs, 5000);
+    intervalRef.current = setInterval(fetchOverlay, safeInterval);
 
     return () => {
-      isMounted.current = false;
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+      isActive = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
     };
   }, [tenantSlug, tenantId, branchId, intervalMs, setOverlayData, setStale]);

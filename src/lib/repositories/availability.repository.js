@@ -12,6 +12,7 @@ export class AvailabilityRepository {
    * @returns {Promise<Object>} - The overlay data
    */
   static async fetchAvailabilityOverlay({ tenantSlug, tenantId, branchId }) {
+    console.log(`[AvailabilityRepository] fetchAvailabilityOverlay called at ${Date.now()}`);
     try {
       const url = new URL(`${API_BASE_URL}/api/v1/public/branches/${branchId}/menu-availability`);
       if (tenantSlug) url.searchParams.append('tenant_slug', tenantSlug);

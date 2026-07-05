@@ -94,48 +94,52 @@ export const HealthcheckService = {
   },
 
   /**
-   * Validates queue health, event backlog, and dead-letter size.
+   * Validates queue health, event backlog, and dead-letter size using partition lag tracking.
    */
   async checkQueueHealth(): Promise<HealthDependencyReport> {
     const start = performance.now();
     try {
-      // Count pending/processing outbox events
-      const { count: pendingCount, error: pendingErr } = await supabaseAdmin
-        .from('domain_events')
-        .select('*', { count: 'exact', head: true })
-        .in('delivery_status', ['pending', 'processing']);
-
-      // Count dead letters
-      const { count: dlqCount, error: dlqErr } = await supabaseAdmin
-        .from('dead_letter_events')
-        .select('*', { count: 'exact', head: true });
-
+      // Dynamic import to avoid circular dependency issues at bootstrap
+      const { scanAllPartitionsHealth } = await import('../maintenance/lag-tracker.service');
+      const partitions = await scanAllPartitionsHealth();
+      
       const latencyMs = performance.now() - start;
 
-      if (pendingErr || dlqErr) {
+      let hasRed = false;
+      let hasYellow = false;
+      let totalPending = 0;
+      let totalDlq = 0;
+      let maxAge = 0;
+
+      for (const p of partitions) {
+        if (p.alertLevel === 'RED') hasRed = true;
+        if (p.alertLevel === 'YELLOW') hasYellow = true;
+        totalPending += p.pendingCount;
+        totalDlq += p.dlqCount;
+        maxAge = Math.max(maxAge, p.oldestPendingAgeSec);
+      }
+
+      // Check if projection failures have occurred (tracked via dead letter queue)
+      if (hasRed) {
         return {
-          status: 'DEGRADED',
+          status: 'DOWN',
           latencyMs,
-          message: `Queue query completed with error. Pending: ${pendingErr?.message}, DLQ: ${dlqErr?.message}`
+          message: `Queue health RED. Max Age: ${maxAge}s, Pending: ${totalPending}, DLQ: ${totalDlq}`
         };
       }
 
-      // Return degraded state if there's high backlog or dead letters accumulating
-      const backlogSize = pendingCount ?? 0;
-      const deadLetters = dlqCount ?? 0;
-
-      if (backlogSize > 1000 || deadLetters > 100) {
+      if (hasYellow || totalDlq > 0) {
         return {
           status: 'DEGRADED',
           latencyMs,
-          message: `Backlog too high. Pending: ${backlogSize}, DLQ count: ${deadLetters}`
+          message: `Queue health YELLOW. Max Age: ${maxAge}s, Pending: ${totalPending}, DLQ: ${totalDlq}`
         };
       }
 
       return {
         status: 'UP',
         latencyMs,
-        message: `Outbox health excellent. Backlog: ${backlogSize}, DLQ count: ${deadLetters}`
+        message: `Outbox health excellent. Max Age: ${maxAge}s, Pending: ${totalPending}, DLQ: ${totalDlq}`
       };
     } catch (err: any) {
       const latencyMs = performance.now() - start;

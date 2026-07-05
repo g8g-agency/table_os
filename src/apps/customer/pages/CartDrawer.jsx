@@ -85,6 +85,18 @@ export default function CartDrawer({ open, onClose }) {
       const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
 
       const qrToken = sessionToken || ''
+      
+      if (!qrToken) {
+        setErrorMsg('Your session has expired. Please scan the QR code on your table again.');
+        setIsPlacing(false);
+        return;
+      }
+
+      console.log('--- RUNTIME DEBUG: Place Order Triggered ---');
+      console.log('1. sessionStorage(qr_session_token):', sessionStorage.getItem('qr_session_token'));
+      console.log('2. localStorage(orderlyy_qr_context):', localStorage.getItem('orderlyy_qr_context'));
+      console.log('3. resolved qrToken:', qrToken);
+      
       const rawRes = await fetchPublicApi('/public/orders', {
         method: 'POST',
         headers: {
