@@ -15,69 +15,85 @@ import { AppError } from './shared/errors/AppError';
 import os from 'node:os';
 
 import { WebSocketManager } from './modules/transport/websocket.manager';
+import { supabaseAdmin } from './config/supabase';
 
-const app = createApp();
-const PORT = env.PORT;
+async function startServer() {
+  const app = createApp();
+  const PORT = env.PORT;
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  const nets = os.networkInterfaces();
-  const results = Object.create(null);
+  logger.info('warming up database connection pool...');
+  try {
+    const t0 = Date.now();
+    // Warm up the actual get_bootstrap_context RPC code path so that
+    // the first user request doesn't hit the 5000ms timeout race condition.
+    await supabaseAdmin.rpc('get_bootstrap_context', { p_tenant_id: '00000000-0000-0000-0000-000000000000' });
+    logger.info(`database connection warmed up in ${Date.now() - t0}ms`);
+  } catch (err) {
+    logger.warn({ err }, 'database warm-up failed, continuing startup anyway');
+  }
 
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] || []) {
-      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-      if (net.family === 'IPv4' && !net.internal) {
-        if (!results[name]) {
-          results[name] = [];
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    const nets = os.networkInterfaces();
+    const results = Object.create(null);
+
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+        if (net.family === 'IPv4' && !net.internal) {
+          if (!results[name]) {
+            results[name] = [];
+          }
+          results[name].push(net.address);
         }
-        results[name].push(net.address);
       }
     }
-  }
 
-  logger.info(
-    {
-      port: PORT,
-      env: env.NODE_ENV,
-      supabase: !!env.SUPABASE_URL,
-      realtime: 'enabled',
-      lan: results
-    },
-    `🚀 Orderlli backend running on port ${PORT}`
-  );
-  
-  Object.keys(results).forEach((iface) => {
-    results[iface].forEach((ip: string) => {
-      // eslint-disable-next-line no-console
-      console.log(`🌍 Network (LAN): http://${ip}:${PORT}`);
+    logger.info(
+      {
+        port: PORT,
+        env: env.NODE_ENV,
+        supabase: !!env.SUPABASE_URL,
+        realtime: 'enabled',
+        lan: results
+      },
+      `🚀 Orderlli backend running on port ${PORT}`
+    );
+    
+    Object.keys(results).forEach((iface) => {
+      results[iface].forEach((ip: string) => {
+        // eslint-disable-next-line no-console
+        console.log(`📡 Network (LAN): http://${ip}:${PORT}`);
+      });
     });
   });
-});
 
-// ─── WebSocket Upgrade Hook ──────────────────────────────────
-server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
+  // ── WebSocket Upgrade Hook ──────────────────────────────────────────────────────────
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
 
-  if (pathname === '/api/v1/realtime') {
-    void WebSocketManager.getInstance().handleUpgrade(request, socket, head);
-  } else {
-    socket.destroy();
-  }
-});
+    if (pathname === '/api/v1/realtime') {
+      void WebSocketManager.getInstance().handleUpgrade(request, socket, head);
+    } else {
+      socket.destroy();
+    }
+  });
 
-// ─── Graceful shutdown ────────────────────────────────────────
+  // ── Graceful shutdown ───────────────────────────────────────────────────────────────
 
-// Register HTTP Server cleanup hook
-GracefulShutdownService.registerHook('HTTP Server', 50, () => {
-  return new Promise<void>((resolve) => {
-    server.close(() => {
-      logger.info('HTTP server closed gracefully');
-      resolve();
+  // Register HTTP Server cleanup hook
+  GracefulShutdownService.registerHook('HTTP Server', 50, () => {
+    return new Promise<void>((resolve) => {
+      server.close(() => {
+        logger.info('HTTP server closed gracefully');
+        resolve();
+      });
     });
   });
-});
+}
 
-// Register WebSocketManager cleanup hook
+void startServer();
+
+// Register WebSocketManager cleanup hook outside startServer
 GracefulShutdownService.registerHook('WebSocket Transport', 60, async () => {
   await WebSocketManager.getInstance().shutdown();
   logger.info('WebSocket connections cleanly terminated');
@@ -99,4 +115,3 @@ process.on('uncaughtException', (err) => {
   logger.error({ err }, 'Uncaught exception — process will exit');
   GracefulShutdownService.initiateShutdown('uncaughtException');
 });
-

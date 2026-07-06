@@ -220,12 +220,14 @@ function AddButton({ item, onAdd, onCustomize, onAnimate }) {
   )
 }
 
+const DEFAULT_AVAILABILITY = {
+  is_available: true,
+  visibility_state: 'VISIBLE',
+};
+
 // ── Issue 7: MenuItemCard with flying dot animation ───────────────────────────
 function MenuItemCard({ item, idx, navigate, handleItemAdd }) {
-  const availability = useAvailabilityStore(s => s.overlayByItemId[item.id] || {
-    is_available: true,
-    visibility_state: 'VISIBLE',
-  })
+  const availability = useAvailabilityStore(s => s.overlayByItemId[item.id] || DEFAULT_AVAILABILITY)
   const visibility = availability.visibility_state
 
   if (visibility === 'HIDDEN') return null;

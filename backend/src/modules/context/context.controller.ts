@@ -123,16 +123,21 @@ export async function bootstrap(
     if (hasTenant) {
       const rpcStart = Date.now();
       
+      const timeoutId = setTimeout(() => {}, 0); // Placeholder
       const timeoutPromise = new Promise<{data: any, error: any}>((_, reject) => 
         setTimeout(() => reject(new Error('Bootstrap context lookup timed out after 5000ms')), 5000)
       );
 
       // 2a-c. Load tenant, branches, and onboarding state via single optimized RPC
+      log.info({ userId }, `[Bootstrap] Calling get_bootstrap_context at +${Date.now() - startMs}ms`);
       const rpcPromise = supabaseAdmin
         .rpc('get_bootstrap_context', { p_tenant_id: tenantId });
         
       try {
+        const raceStart = Date.now();
+        log.info({ userId }, `[Bootstrap] Starting RPC at +${raceStart - startMs}ms`);
         const { data: rpcData, error: rpcError } = await Promise.race([rpcPromise, timeoutPromise]);
+        log.info({ userId }, `[Bootstrap] RPC finished at +${Date.now() - startMs}ms (took ${Date.now() - raceStart}ms)`);
 
         if (rpcError) {
           log.error({ userId, tenantId, error: rpcError }, '[Bootstrap] RPC lookup failed');
