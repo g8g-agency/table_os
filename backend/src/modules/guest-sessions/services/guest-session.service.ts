@@ -15,7 +15,9 @@ export class GuestSessionService {
     );
 
     if (activeSession) {
-      const expiresAt = activeSession.session_data?.expires_at;
+      // FIX: Use the actual expires_at column from the DB instead of the legacy session_data JSON
+      // If expires_at is null, treat it as not expired (though the DB orchestrator requires a future date).
+      const expiresAt = (activeSession as any).expires_at || activeSession.session_data?.expires_at;
       const isExpired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
 
       if (isExpired) {
@@ -56,7 +58,8 @@ export class GuestSessionService {
     
     return GuestSessionRepository.createSession({
       ...dto,
-      expires_at: null,
+      // Provide a 24-hour expiration explicitly to satisfy the orchestrator's expires_at > NOW() requirement
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       qr_code_id: dto.qr_code_id ?? undefined,
     });
   }

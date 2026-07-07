@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchWithRuntime } from '../../../core/utils/fetchWithRuntime'
-import { useOrderStore } from '../stores/orderStore'
+import { fetchWithRuntime } from '../../../lib/apiClient'
+import { useOrderStore } from '../../../store/index'
 
 const StarRating = ({ value, onChange, label }) => {
   return (

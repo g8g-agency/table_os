@@ -17,13 +17,7 @@ export const PublicAvailabilitySchema = z.object({
   tenant_id: z.string().uuid().optional(),
   tenant_slug: z.string().min(1).optional(),
   branch_id: z.string().uuid({ message: 'branch_id must be a valid UUID' }),
-}).refine(
-  (data) => data.tenant_id !== undefined || data.tenant_slug !== undefined,
-  {
-    message: 'Either tenant_id or tenant_slug must be provided',
-    path: ['tenant_id'],
-  }
-);
+});
 
 export async function getPublicMenuAvailability(
   req: Request,
@@ -81,7 +75,17 @@ export async function getPublicMenuAvailability(
     }
 
     if (!resolvedTenantId) {
-      throw new AppError('Unable to resolve tenant identity', 400, ErrorCode.VALIDATION_ERROR, true);
+      // Auto-resolve tenant_id from branch_id if not supplied by the client
+      const { data: branchRow, error: branchErr } = await supabaseAdmin
+        .from('branches')
+        .select('tenant_id')
+        .eq('id', params.branch_id)
+        .maybeSingle();
+
+      if (branchErr || !branchRow) {
+        throw new AppError('Branch not found', 404, ErrorCode.NOT_FOUND, true);
+      }
+      resolvedTenantId = branchRow.tenant_id as string;
     }
 
     const t = performance.now();

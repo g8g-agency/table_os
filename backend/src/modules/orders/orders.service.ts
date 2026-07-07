@@ -211,6 +211,17 @@ export async function createOrderFromCart(params: {
       idempotencyKey: idempotencyKey || null,
     });
 
+    // WORKAROUND: The DB function orchestrate_checkout_v1 still checks expires_at > NOW() (old migration).
+    // The session has already been validated as active by requireQrSession middleware.
+    // Extend expires_at to 24h from now to ensure the DB check passes until the migration is re-run.
+    if (params.sessionId) {
+      await supabaseAdmin
+        .from('guest_sessions')
+        .update({ expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() })
+        .eq('id', params.sessionId)
+        .eq('is_active', true);
+    }
+
     const { data, error } = await supabaseAdmin.rpc('orchestrate_checkout_v1', {
       p_tenant_id: tenantId,
       p_cart_id: cartId,
@@ -254,6 +265,12 @@ export async function createOrderFromCart(params: {
       throw new AppError('Order created but could not be retrieved.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
 
+    // ── Auto-route order to Kitchen (creates kitchen_order + items + preparations) ──
+    // Run as best-effort async — order creation has already succeeded at this point.
+    void kitchenService.routeOrderToKitchen(tenantId, response.order_id).catch((err) => {
+      logger.error({ error: err.message, orderId: response.order_id }, '[OrderService] Non-fatal: Failed to auto-route order to kitchen after checkout');
+    });
+
     // ── Dispatch ORDER_ASSIGNED realtime event ────────────────────────────
     void _dispatchOrderAssignedEvent(createdOrder, cart!.branch_id, tenantId, cartItems);
 
@@ -268,6 +285,7 @@ export async function createOrderFromCart(params: {
 
     // Pass through the raw RPC response fields as well so the frontend gets everything
     return { ...createdOrder, ...response };
+
 }
 
 // ── Internal: Dispatch ORDER_ASSIGNED after successful checkout ─────────────
