@@ -386,6 +386,20 @@ export async function transitionOrderStatus(params: {
       logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to cascade cancellation to kitchen ticket');
     });
   }
+  
+  // 4.6. Extend Guest Session expiry for post-payment review window
+  if (targetStatus === 'completed' && order.session_id) {
+    try {
+      const expiresAt = new Date(new Date().getTime() + 10 * 60000).toISOString();
+      await supabaseAdmin
+        .from('guest_sessions')
+        .update({ expires_at: expiresAt })
+        .eq('id', order.session_id)
+        .eq('tenant_id', tenantId);
+    } catch (err: any) {
+      logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to extend guest session for review window');
+    }
+  }
 
   // 5. Dispatch Realtime Projection Update
   await ProjectionService.dispatchProjectionUpdate({

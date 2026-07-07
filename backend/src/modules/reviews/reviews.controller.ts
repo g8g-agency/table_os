@@ -47,6 +47,25 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
   }
 }
 
+export async function skipReview(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const tenantId = req.headers['x-tenant-id'] as string || req.qrSession?.tenantId;
+    if (!tenantId) throw new AppError('Tenant context missing', 400, ErrorCode.BAD_REQUEST);
+
+    const sessionToken = req.headers['x-qr-session-token'] as string;
+    if (!sessionToken) throw new AppError('QR Session Token missing', 401, ErrorCode.UNAUTHORIZED);
+
+    const orderId = req.body.orderId;
+    if (!orderId) throw new AppError('orderId is required', 400, ErrorCode.VALIDATION_ERROR);
+
+    await reviewsService.skipReview(tenantId, sessionToken, orderId);
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listReviews(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const tenantId = req.context?.tenantId;

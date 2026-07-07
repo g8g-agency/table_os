@@ -4,7 +4,7 @@
 // ============================================================
 
 import type { Request, Response, NextFunction } from 'express';
-import { PublicCheckoutSchema } from './public-orders.validators';
+import { PublicCheckoutSchema, RequestPaymentSchema } from './public-orders.validators';
 import * as publicOrdersService from './public-orders.service';
 import { getOrder } from './orders.service';
 import { AppError } from '../../shared/errors/AppError';
@@ -63,6 +63,28 @@ export async function getPublicOrderStatus(req: Request, res: Response, next: Ne
         updated_at: order.updated_at,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Handles intent to pay by either UPI or Cash from a public customer.
+ */
+export async function requestPayment(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const session = req.qrSession!;
+    const orderId = req.params.id as string;
+    const dto = RequestPaymentSchema.parse(req.body);
+
+    const result = await publicOrdersService.requestPayment({
+      tenantId: session.tenant_id,
+      branchId: session.branch_id,
+      orderId,
+      paymentMethod: dto.payment_method,
+    });
+
+    res.status(200).json(result);
   } catch (err) {
     next(err);
   }

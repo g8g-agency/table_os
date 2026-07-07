@@ -106,3 +106,61 @@ export async function createPublicOrder(params: {
     source: 'qr_scan',
   });
 }
+
+/**
+ * Handles intent to pay by either UPI or Cash from a public customer.
+ * Uses Optimistic Concurrency Control on the 'status' and 'customer_payment_intent' fields.
+ */
+export async function requestPayment(params: {
+  tenantId: string;
+  orderId: string;
+  branchId: string;
+  paymentMethod: 'cash' | 'upi';
+}): Promise<{ success: boolean; message: string }> {
+  const { tenantId, orderId, branchId, paymentMethod } = params;
+
+  // 1. Verify ownership and status
+  const { data: order, error } = await supabaseAdmin
+    .from('orders')
+    .select('id, status, customer_payment_intent, version_num')
+    .eq('id', orderId)
+    .eq('tenant_id', tenantId)
+    .eq('branch_id', branchId)
+    .single();
+
+  if (error || !order) {
+    throw new AppError('Order not found', 404, ErrorCode.NOT_FOUND);
+  }
+
+  if (order.status === 'completed' || order.status === 'cancelled') {
+    throw new AppError(`Order is in '${order.status}' status, cannot request payment`, 400, ErrorCode.VALIDATION_ERROR);
+  }
+
+  // Idempotency: if already signaled for this method, just return success
+  if (order.customer_payment_intent === paymentMethod) {
+    return { success: true, message: `Payment intent already set to ${paymentMethod}` };
+  }
+
+  // 2. Optimistic update
+  // We allow changing from 'cash' to 'upi' or vice-versa.
+  const { error: updateError, data: updateData } = await supabaseAdmin
+    .from('orders')
+    .update({
+      customer_payment_intent: paymentMethod,
+      payment_intent_at: new Date().toISOString(),
+      version_num: order.version_num + 1,
+    })
+    .eq('id', orderId)
+    .eq('version_num', order.version_num)
+    .select('id');
+
+  if (updateError) {
+    throw new AppError('Failed to record payment intent: ' + updateError.message, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  }
+
+  if (!updateData || updateData.length === 0) {
+    throw new AppError('Could not set payment intent. State may have changed.', 409, ErrorCode.CONFLICT);
+  }
+
+  return { success: true, message: 'Payment intent recorded successfully' };
+}

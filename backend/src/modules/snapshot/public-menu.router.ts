@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { getPublicMenuSnapshot } from './public-menu.controller';
-import { checkoutPublicOrder, getPublicOrderStatus } from '../orders/public-orders.controller';
+import { checkoutPublicOrder, getPublicOrderStatus, requestPayment } from '../orders/public-orders.controller';
 import { createCall } from '../waiter-call/waiter-call.controller';
 import { requireQrSession } from '../tables/qr/qr.middleware';
 import { requestIdempotency } from '../../middleware/idempotency.middleware';
@@ -41,6 +41,16 @@ publicMenuRouter.post(
 
 // GET /public/orders/:id/status — Track status of placed orders (QR session required)
 publicMenuRouter.get('/orders/:id/status', requireQrSession, getPublicOrderStatus);
+
+// POST /public/orders/:id/request-payment — Request cash or UPI intent
+publicMenuRouter.post(
+  '/orders/:id/request-payment',
+  requireQrSession,
+  publicOrderLimiter,
+  initPublicContext,
+  requestIdempotency(),
+  requestPayment
+);
 
 // POST /public/waiter-call — Enables table-scoped waiter pings (QR session required)
 publicMenuRouter.post('/waiter-call', requireQrSession, createCall);

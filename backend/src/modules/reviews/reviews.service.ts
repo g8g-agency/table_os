@@ -4,6 +4,7 @@ import { ErrorCode } from '../../shared/errors/error-codes';
 import * as reviewsRepo from './reviews.repository';
 import * as ordersRepo from '../orders/orders.repository';
 import * as guestSessionsRepo from '../guest-sessions/repositories/guest-session.repository';
+import { supabaseAdmin } from '../../config/supabase';
 
 export async function submitReview(
   tenantId: string,
@@ -35,29 +36,51 @@ export async function submitReview(
     throw new AppError('Cannot review an unpaid order', 400, ErrorCode.VALIDATION_ERROR);
   }
 
-  // 3. Prevent duplicate reviews (also enforced by unique index, but fail gracefully)
-  const existing = await reviewsRepo.getReviewByOrderId(tenantId, orderId);
-  if (existing) {
-    throw new AppError('Review already submitted for this order', 409, ErrorCode.CONFLICT);
-  }
-
-  // 4. Insert
+  // 3. Insert Review and close session atomically via RPC
   try {
-    const review = await reviewsRepo.createReview({
-      tenant_id: order.tenant_id,
-      branch_id: order.branch_id,
-      order_id: order.id,
-      guest_session_id: session.id,
-      rating,
-      comment,
-      food_rating: foodRating,
-      service_rating: serviceRating,
-      is_flagged: rating <= 2,
+    const { data, error } = await supabaseAdmin.rpc('submit_order_review', {
+      p_tenant_id: tenantId,
+      p_order_id: orderId,
+      p_session_id: session.id,
+      p_food_rating: foodRating || rating,
+      p_service_rating: serviceRating || rating,
+      p_comment: comment || null
     });
-    return review;
+
+    if (error) throw error;
+    
+    // We don't return the full review object from the RPC currently, just success
+    return { id: 'rpc-success', tenant_id: tenantId, branch_id: order.branch_id, guest_session_id: session.id, rating, is_flagged: rating <= 2, created_at: new Date().toISOString(), order_id: orderId };
   } catch (err: any) {
-    if (err.code === '23505') { // Postgres unique_violation
+    if (err.message?.includes('Review already submitted') || err.code === '23505') {
       throw new AppError('Review already submitted for this order', 409, ErrorCode.CONFLICT);
+    }
+    if (err.message?.includes('Review window has expired')) {
+      throw new AppError('Review window has expired', 400, ErrorCode.VALIDATION_ERROR);
+    }
+    throw err;
+  }
+}
+
+export async function skipReview(tenantId: string, sessionToken: string, orderId: string): Promise<{ success: boolean }> {
+  const session = await guestSessionsRepo.GuestSessionRepository.findSessionByToken(sessionToken);
+  if (!session) throw new AppError('Invalid guest session', 401, ErrorCode.UNAUTHORIZED);
+  if (session.tenant_id !== tenantId) throw new AppError('Tenant mismatch', 403, ErrorCode.FORBIDDEN);
+
+  const order = await ordersRepo.getOrderById(tenantId, orderId);
+  if (!order || order.session_id !== session.id) throw new AppError('Order does not belong to this session', 403, ErrorCode.FORBIDDEN);
+
+  try {
+    const { error } = await supabaseAdmin.rpc('skip_order_review', {
+      p_tenant_id: tenantId,
+      p_order_id: orderId,
+      p_session_id: session.id
+    });
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    if (err.message?.includes('already submitted or skipped')) {
+      throw new AppError('Review already submitted or skipped', 409, ErrorCode.CONFLICT);
     }
     throw err;
   }

@@ -7,6 +7,7 @@ export const reviewsRouter = Router();
 
 // Guest endpoint (requires QR session token, handled in controller or via lightweight middleware)
 reviewsRouter.post('/', reviewsController.submitReview);
+reviewsRouter.post('/skip', reviewsController.skipReview);
 
 // Admin endpoint (requires staff auth)
 reviewsRouter.get('/', authenticate, requireMinRole(ROLES.MANAGER), reviewsController.listReviews);

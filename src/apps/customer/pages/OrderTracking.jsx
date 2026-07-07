@@ -8,6 +8,7 @@ import { supabase } from '../../../lib/supabase'
 import { motion } from 'framer-motion'
 import { playBeep } from '../../../utils/beep'
 import { BottomNav } from '../components/BottomNav'
+import OrderReviewScreen from './OrderReviewScreen'
 import { getTableNum } from '../utils/tableNum'
 import { getQrSession } from '../utils/qrSession'
 import { useOrderStore } from '../../../store/index'
@@ -41,12 +42,13 @@ export default function OrderTracking() {
   
   const liveOrder = useOrderStore(state => state.liveOrders.find(o => o.id === resolvedOrderId))
   const [loading, setLoading] = useState(true)
-  const [paymentLoading, setPaymentLoading] = useState(false)
-  const [paymentDone, setPaymentDone] = useState(false)
+  const [paymentStep, setPaymentStep] = useState('choose') // 'choose', 'upi_pending', 'cash_requested'
+  const [isSubmitting, setIsSubmitting] = useState(false)
   
   // Use liveOrder if available, otherwise fallback to local state (useful before store is populated)
   const order = liveOrder || null
   const orderStatus = order?.status || 'pending'
+  const { restaurantName } = getQrSession()
 
   useEffect(() => {
     if (!resolvedOrderId) return
@@ -154,8 +156,7 @@ export default function OrderTracking() {
 
   const stepIndex = { 
     pending: 1, cooking: 2, preparing: 2, ready: 3, served: 4, delivered: 4, completed: 4, 
-    rejected: -1, cancelled: -1, 
-    payment_pending: 2, paid: 3 
+    rejected: -1, cancelled: -1, payment_pending: 2, paid: 3
   }
   const currentStep = stepIndex[orderStatus] ?? 1
 
@@ -181,73 +182,23 @@ export default function OrderTracking() {
     pending:  { text: '⏳ Waiting',     color: '#D97706', bg: '#FFFBEB' },
   }
 
-  // Load Razorpay SDK dynamically
-  const loadRazorpay = () => {
-    return new Promise((resolve) => {
-      if (window.Razorpay) return resolve(true)
-      const script = document.createElement('script')
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      script.onload = () => resolve(true)
-      script.onerror = () => resolve(false)
-      document.body.appendChild(script)
-    })
-  }
-
-  // Handle Razorpay online payment
-  const handlePayment = async () => {
+  const handleRequestPayment = async (method) => {
+    setIsSubmitting(true)
     try {
-      setPaymentLoading(true)
-      const loaded = await loadRazorpay()
-      if (!loaded) {
-        alert('Payment service failed to load. Please try again.')
-        setPaymentLoading(false)
-        return
-      }
-
-      const options = {
-        key: 'rzp_test_Sb2Ab0QBXjj4KE',
-        amount: total * 100,
-        currency: 'INR',
-        name: 'The Grand Spice',
-        description: `Order #${String(resolvedOrderId).slice(-6).toUpperCase()}`,
-        image: 'https://i.imgur.com/n5tjHFD.png',
-        handler: async (response) => {
-          const paymentId = response.razorpay_payment_id
-
-          await submitMutation('/api/v1/runtime/mutations', {
-            mutation_id: 'process_payment',
-            idempotency_key: crypto.randomUUID(),
-            payload: {
-              order_id: resolvedOrderId,
-              table_num: order?.table_num || getTableNum(),
-              tenant_id: TENANT_ID,
-              payment_id: paymentId
-            }
-          })
-
-          setPaymentDone(true)
-          setPaymentLoading(false)
-        },
-        prefill: {
-          name: 'Guest',
-          contact: '9999999999'
-        },
-        theme: {
-          color: '#D69E2E'
-        },
-        modal: {
-          ondismiss: () => {
-            setPaymentLoading(false)
-          }
-        }
-      }
-
-      const razorpay = new window.Razorpay(options)
-      razorpay.open()
+      const res = await fetchWithRuntime(`/public/orders/${resolvedOrderId}/request-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_method: method }),
+      })
+      if (!res.ok) throw new Error('Payment request failed')
+      setPaymentStep(method === 'upi' ? 'upi_pending' : 'cash_requested')
+      // Local optimistic update
+      useOrderStore.getState().replaceOrderProjection({ ...order, customer_payment_intent: method })
     } catch (err) {
-      console.error('Payment error:', err)
-      alert('Something went wrong. Please try again.')
-      setPaymentLoading(false)
+      console.error('Payment intent error:', err)
+      alert('Could not notify staff. Please try again or wave to a staff member.')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -255,8 +206,7 @@ export default function OrderTracking() {
   const handleDownloadInvoice = () => {
     const lines = [
       '===================================',
-      '       THE GRAND SPICE',
-      '       A Rooftop Kitchen, Mumbai',
+      `       ${(restaurantName || 'Restaurant').toUpperCase()}`,
       '===================================',
       `Table: ${order?.table_num || 'T03'}`,
       `Order: #${String(resolvedOrderId).slice(-6).toUpperCase()}`,
@@ -302,84 +252,10 @@ export default function OrderTracking() {
 
       <main style={{ flex: 1, paddingBottom: 96 }}>
         
-        {/* DEV TOOLS */}
-        {import.meta.env.DEV && order && (
-          <div style={{
-            margin: '16px',
-            padding: '12px',
-            border: '2px dashed #F0883E',
-            borderRadius: '8px',
-            background: 'rgba(240,136,62,0.1)'
-          }}>
-            <p style={{ fontSize: 11, color: '#F0883E', margin: '0 0 8px 0', fontWeight: 'bold' }}>
-              🛠 DEV TOOLS
-            </p>
-            <p style={{ fontSize: 10, color: '#F0883E', margin: '0 0 8px 0' }}>
-              Order: {order.id.slice(0, 8)}...
-            </p>
-            <button
-              onClick={async () => {
-                try {
-                  const res = await fetch(`/api/v1/dev/fake-payment/${order.id}`, { method: 'POST' });
-                  if (!res.ok) {
-                    const text = await res.text();
-                    alert('Fake payment failed: ' + text);
-                    return;
-                  }
-                  window.location.href = `/session-ended?orderId=${order.id}`;
-                } catch (e) {
-                  alert('Error: ' + e.message);
-                }
-              }}
-              style={{
-                width: '100%',
-                padding: '12px',
-                background: '#F0883E',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              💳 Fake Payment (Complete Order)
-            </button>
-          </div>
-        )}
-        {/* 2. STATUS BAR */}
-        <div style={{
-          background: ['rejected', 'cancelled'].includes(orderStatus) ? '#FEF2F2' : '#F0FDF4',
-          border: ['rejected', 'cancelled'].includes(orderStatus) ? '1px solid #FECACA' : '1px solid #BBF7D0',
-          borderRadius: 12, margin: 16, padding: '10px 16px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 10, height: 10, background: ['rejected', 'cancelled'].includes(orderStatus) ? '#EF4444' : orderStatus === 'ready' ? '#22C55E' : '#E31E24', borderRadius: '50%' }} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: ['rejected', 'cancelled'].includes(orderStatus) ? '#DC2626' : '#16A34A' }}>
-              {orderStatus === 'cancelled' ? '✕ Your order was cancelled'
-               : orderStatus === 'rejected' ? '✕ Order was rejected by kitchen'
-               : ['served', 'delivered', 'completed'].includes(orderStatus) ? 'Enjoy your meal!'
-               : orderStatus === 'paid'    ? 'Payment received ✅ Thank you!'
-               : orderStatus === 'ready'   ? 'Your order is ready! ✅'
-               : ['cooking', 'preparing'].includes(orderStatus) ? 'Kitchen is preparing your order 🍳'
-               : orderStatus === 'payment_pending' ? 'Payment requested — waiter is on the way 🙏'
-               : '🟡 Waiting for kitchen to confirm'}
-            </span>
-          </div>
-          {!['rejected', 'cancelled', 'served', 'delivered', 'completed'].includes(orderStatus) && (
-            <div style={{ background: '#DCFCE7', borderRadius: 999, padding: '2px 10px', color: '#16A34A', fontSize: 12, fontWeight: 500 }}>
-              {orderStatus === 'ready' ? 'Ready to serve! ✅'
-               : ['cooking', 'preparing'].includes(orderStatus) ? 'Kitchen is preparing 🍳'
-               : 'Waiting for kitchen...'}
-            </div>
-          )}
-        </div>
-
         {/* 3. RESTAURANT BANNER */}
-        <div style={{ position: 'relative', height: 100, margin: '0 16px 16px', borderRadius: 16, overflow: 'hidden', background: 'linear-gradient(135deg, #111D35, #E31E24)' }}>
+        <div style={{ position: 'relative', height: 100, margin: '16px 16px 16px', borderRadius: 16, overflow: 'hidden', background: 'linear-gradient(135deg, #111D35, #E31E24)' }}>
           <div style={{ position: 'absolute', bottom: 16, left: 16 }}>
-            <h2 style={{ color: 'white', fontSize: 18, fontWeight: 700, margin: 0 }}>The Grand Spice</h2>
+            <h2 style={{ color: 'white', fontSize: 18, fontWeight: 700, margin: 0 }}>{restaurantName || 'Restaurant'}</h2>
           </div>
         </div>
 
@@ -523,53 +399,110 @@ export default function OrderTracking() {
               <span style={{ fontSize: '15px', fontWeight: '600', color: '#1A1C1E' }}>₹{total}</span>
             </div>
 
-            {/* Pay button — shows when not yet paid */}
-            {!paymentDone && (
-              <button
-                onClick={handlePayment}
-                disabled={paymentLoading}
-                style={{
-                  width: '100%',
-                  background: paymentLoading ? '#9CA3AF' : '#D69E2E',
-                  border: 'none',
-                  borderRadius: '14px',
-                  padding: '15px',
-                  color: 'white',
-                  fontSize: '15px',
-                  fontWeight: '600',
-                  cursor: paymentLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  marginBottom: '10px'
-                }}
-              >
-                {paymentLoading ? 'Opening payment...' : `Pay ₹${total} Online`}
-              </button>
+            {/* Payment UI for active status */}
+            {!['completed', 'rejected', 'cancelled'].includes(orderStatus) && !['upi_pending', 'cash_requested'].includes(paymentStep) && order?.customer_payment_intent == null && (
+              <div style={{ marginTop: '16px' }}>
+                <p style={{ fontSize: '13px', color: '#6C757D', marginBottom: '8px' }}>Choose how you'd like to pay</p>
+                <button
+                  onClick={() => setPaymentStep('upi_intent')}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%', background: '#238636', border: 'none', borderRadius: '14px',
+                    padding: '15px', color: 'white', fontSize: '15px', fontWeight: '600',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer', marginBottom: '10px'
+                  }}
+                >
+                  Pay via UPI
+                </button>
+                <button
+                  onClick={() => handleRequestPayment('cash')}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%', background: '#F0883E', border: 'none', borderRadius: '14px',
+                    padding: '15px', color: 'white', fontSize: '15px', fontWeight: '600',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {isSubmitting ? 'Notifying staff...' : 'Pay with Cash'}
+                </button>
+              </div>
             )}
 
-            {/* Payment success state */}
-            {paymentDone && (
-              <div style={{
-                background: '#F0FDF4',
-                border: '1px solid #86EFAC',
-                borderRadius: '12px',
-                padding: '12px 16px',
-                textAlign: 'center',
-                marginBottom: '10px'
-              }}>
-                <p style={{ fontSize: '15px', fontWeight: '600', color: '#16A34A', margin: 0 }}>
-                  ✅ Payment Successful!
+            {/* UPI QR Display Step */}
+            {paymentStep === 'upi_intent' && (
+              <div style={{ marginTop: '16px', background: '#F3F4F6', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                <p style={{ fontSize: '13px', color: '#6C757D', marginBottom: '12px' }}>Scan with any UPI app</p>
+                <div style={{ width: '150px', height: '150px', background: 'white', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E5E7EB', borderRadius: '8px' }}>
+                  <span style={{ fontSize: '24px' }}>QR Code</span>
+                </div>
+                <p style={{ fontSize: '14px', fontWeight: '600', marginTop: '12px', color: '#1A1C1E' }}> restaurant@upi </p>
+                <button
+                  onClick={() => handleRequestPayment('upi')}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%', background: '#238636', border: 'none', borderRadius: '14px',
+                    padding: '15px', color: 'white', fontSize: '15px', fontWeight: '600',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer', marginTop: '16px'
+                  }}
+                >
+                  {isSubmitting ? 'Confirming...' : "I've Paid"}
+                </button>
+              </div>
+            )}
+
+            {/* Waiting for Staff Verification */}
+            {(order?.customer_payment_intent || ['upi_pending', 'cash_requested'].includes(paymentStep)) && (
+              <div style={{ marginTop: '16px', background: '#FFFBEB', padding: '16px', borderRadius: '12px', border: '1px solid #FCD34D', textAlign: 'center' }}>
+                <p style={{ fontSize: '15px', fontWeight: '600', color: '#D97706', margin: 0 }}>
+                  {order?.customer_payment_intent === 'cash' || paymentStep === 'cash_requested' ? 'Staff is on their way' : 'Waiting for Staff Verification'}
                 </p>
-                <p style={{ fontSize: '12px', color: '#4B5563', marginTop: '4px' }}>
-                  Thank you for dining with us 🙏
+                <p style={{ fontSize: '12px', color: '#92400E', marginTop: '4px' }}>
+                  A staff member will verify your payment shortly.
                 </p>
+                {order?.customer_payment_intent === 'cash' && (
+                  <>
+                    <button
+                      onClick={() => handleRequestPayment('cash')}
+                      disabled={isSubmitting}
+                      style={{
+                        width: '100%', background: 'transparent', border: '1px solid #D97706', borderRadius: '14px',
+                        padding: '10px', color: '#D97706', fontSize: '14px', fontWeight: '600',
+                        cursor: isSubmitting ? 'not-allowed' : 'pointer', marginTop: '12px'
+                      }}
+                    >
+                      Notify again
+                    </button>
+                    <button
+                      onClick={() => { setPaymentStep('upi_intent'); }}
+                      disabled={isSubmitting}
+                      style={{
+                        width: '100%', background: 'transparent', border: 'none', borderRadius: '14px',
+                        padding: '10px', color: '#6C757D', fontSize: '13px', fontWeight: '500',
+                        cursor: isSubmitting ? 'not-allowed' : 'pointer', marginTop: '4px'
+                      }}
+                    >
+                      Pay via UPI instead
+                    </button>
+                  </>
+                )}
+                {order?.customer_payment_intent === 'upi' && (
+                  <button
+                    onClick={() => handleRequestPayment('cash')}
+                    disabled={isSubmitting}
+                    style={{
+                      width: '100%', background: 'transparent', border: 'none', borderRadius: '14px',
+                      padding: '10px', color: '#6C757D', fontSize: '13px', fontWeight: '500',
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer', marginTop: '12px'
+                    }}
+                  >
+                    Pay with Cash instead
+                  </button>
+                )}
               </div>
             )}
 
             {/* Download invoice — only after payment */}
-            {paymentDone && (
+            {orderStatus === 'completed' && (
               <button
                 onClick={handleDownloadInvoice}
                 style={{
@@ -585,7 +518,8 @@ export default function OrderTracking() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  marginTop: '16px'
                 }}
               >
                 ⬇ Download Invoice
@@ -612,8 +546,18 @@ export default function OrderTracking() {
       {/* 7. BOTTOM NAV */}
       <BottomNav />
 
-      {/* THANK YOU SCREEN — shown when order is served */}
-      {['served', 'delivered', 'completed'].includes(orderStatus) && (
+      {/* REVIEW SCREEN — shown immediately after payment/completion if no review yet */}
+      {orderStatus === 'completed' && !order?.review_completed_at && !order?.review_skipped_at && (
+        <OrderReviewScreen 
+          order={order}
+          onComplete={() => {
+            // Force re-render of this component or rely on store update
+          }}
+        />
+      )}
+
+      {/* THANK YOU SCREEN — shown when order is served, or after review */}
+      {['served', 'delivered', 'completed'].includes(orderStatus) && (orderStatus !== 'completed' || order?.review_completed_at || order?.review_skipped_at) && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 100,
           minHeight: '100vh',

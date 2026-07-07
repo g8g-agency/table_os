@@ -49,6 +49,10 @@ export interface Order {
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  review_requested_at?: string | null;
+  review_completed_at?: string | null;
+  review_skipped_at?: string | null;
+  review_expires_at?: string | null;
 }
 
 export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'created_at' | 'updated_at'>): Promise<Order> {
@@ -173,7 +177,14 @@ export async function updateOrderStatus(
   else if (status === 'preparing') updates.preparing_at = now;
   else if (status === 'ready') updates.ready_at = now;
   else if (status === 'delivered') updates.delivered_at = now;
-  else if (status === 'completed') updates.completed_at = now;
+  else if (status === 'completed') {
+    updates.completed_at = now;
+    updates.review_requested_at = now;
+    
+    // Add 10 minutes to current time for expiry
+    const expiresAt = new Date(new Date().getTime() + 10 * 60000).toISOString();
+    updates.review_expires_at = expiresAt;
+  }
   else if (status === 'cancelled') {
     updates.cancelled_at = now;
     updates.cancelled_by = userId;

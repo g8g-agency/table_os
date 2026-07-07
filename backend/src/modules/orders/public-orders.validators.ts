@@ -21,3 +21,9 @@ export const PublicCheckoutSchema = z.object({
 }).strict();
 
 export type PublicCheckoutInput = z.infer<typeof PublicCheckoutSchema>;
+
+export const RequestPaymentSchema = z.object({
+  payment_method: z.enum(['cash', 'upi']),
+}).strict();
+
+export type RequestPaymentInput = z.infer<typeof RequestPaymentSchema>;
