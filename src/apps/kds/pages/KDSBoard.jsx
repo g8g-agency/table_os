@@ -8,6 +8,7 @@ import { useMutationCoordinator } from '../../../store/mutationCoordinator.js';
 import { useKdsIdentityStore } from '../../../store/kdsIdentityStore.js';
 import { useRuntimeIdentityStore } from '../../../store/runtimeIdentityStore.js';
 import { useRuntimeAuthStore } from '../../../store/runtimeAuthStore.js';
+import { useTransportStore } from '../../../store/transportStore.js';
 import { clearAllRuntimeState } from '../../../lib/idbStorage.js';
 import OrderCard from '../components/OrderCard.jsx';
 import { Loader2 } from 'lucide-react';
@@ -68,6 +69,9 @@ const KDSBoard = () => {
   const [historySort, setHistorySort]     = useState('newest'); // newest | oldest
   const [historyFilter, setHistoryFilter] = useState('day'); // day | week | month | all
   const prevOrderCount                    = useRef(0);
+  // ── Incoming order alert queue ───────────────────
+  const [incomingAlerts, setIncomingAlerts] = useState([]);
+  const prevPendingIds                      = useRef(new Set());
 
   /* ── Dev fallback (inline) ─────────────────────── */
   const runtimeTenantId   = useRuntimeAuthStore(s => s.tenantId) || localStorage.getItem('kds_tenant_id');
@@ -112,7 +116,41 @@ const KDSBoard = () => {
     
   }, [tenantId, branchId, stationId, activeTab, rebuildOrders, rebuildMetrics, fetchHistory, historyFilter]);
 
-  /* ── Realtime subscription is now handled globally by WebSocketRuntime ── */
+  /* ── Real-time WebSocket subscription: auto-refresh KDS on new orders ── */
+  useEffect(() => {
+    if (!branchId || !effectiveTenantId) return;
+
+    let debounceTimer = null;
+    const triggerRebuild = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        console.log('[KDSBoard] Realtime event received — rebuilding orders projection');
+        rebuildOrders(branchId, stationId);
+        rebuildMetrics(branchId, stationId);
+      }, 300);
+    };
+
+    // Subscribe to OPERATIONAL_STREAM (new orders, order updates) from the WebSocket
+    const unsubOps = useTransportStore.getState().subscribe('OPERATIONAL_STREAM', (envelope) => {
+      const eventType = envelope?.event_type;
+      // Rebuild KDS when a new order lands or an order status changes
+      if (eventType === 'order_update' || eventType === 'order_assigned') {
+        triggerRebuild();
+      }
+    });
+
+    // Also subscribe to ORDER_ALERTS so KDS rebuilds when an order is accepted/prepared/ready
+    const unsubAlerts = useTransportStore.getState().subscribe('ORDER_ALERTS', (envelope) => {
+      triggerRebuild();
+    });
+
+    return () => {
+      clearTimeout(debounceTimer);
+      unsubOps();
+      unsubAlerts();
+    };
+  }, [branchId, effectiveTenantId, stationId]);
+
 
   /* ── Page Visibility API: re-sync when tab regains focus ── */
   useEffect(() => {
@@ -163,6 +201,31 @@ const KDSBoard = () => {
     if (curr > prevOrderCount.current) playOrderSound();
     prevOrderCount.current = curr;
   }, [liveOrders.length]);
+
+  /* ── Incoming order alert detection ─────────────── */
+  useEffect(() => {
+    const pendingOrders = liveOrders.filter(o => o.status === 'pending');
+    const currentIds    = new Set(pendingOrders.map(o => o.id || o.ticketId || o.orderId));
+    const newOrders     = pendingOrders.filter(o => {
+      const id = o.id || o.ticketId || o.orderId;
+      return id && !prevPendingIds.current.has(id);
+    });
+    if (newOrders.length > 0) {
+      const alerts = newOrders.map(o => ({
+        id:       o.id || o.ticketId || o.orderId,
+        tableNum: o.tableNumber || o.tableNum || o.table_number || '?',
+        orderNum: o.order_number || o.orderNumber || String(o.id || '').slice(0, 6).toUpperCase(),
+        ts:       Date.now(),
+      }));
+      setIncomingAlerts(prev => [...prev, ...alerts]);
+      alerts.forEach(a => {
+        setTimeout(() => {
+          setIncomingAlerts(prev => prev.filter(x => x.id !== a.id));
+        }, 8000);
+      });
+    }
+    prevPendingIds.current = currentIds;
+  }, [liveOrders]);
 
   /* ── Derived stats ──────────────────────────────── */
   const pendingCount = liveOrders.filter(o => o.status === 'pending').length;
@@ -223,6 +286,60 @@ const KDSBoard = () => {
     <div style={{ minHeight: '100vh', background: '#F8F9FA', fontFamily: '"Plus Jakarta Sans", sans-serif', color: '#1A1C1E', userSelect: 'none', overflow: 'hidden' }}>
 
       {/* MULTI-TAB LEADERSHIP OVERLAY REMOVED */}
+
+      {/* ━━━ INCOMING ORDER ALERT STACK ━━━ */}
+      <div style={{ position: 'fixed', top: 76, right: 20, zIndex: 2000, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' }}>
+        {incomingAlerts.map((alert) => (
+          <div
+            key={alert.id}
+            style={{
+              pointerEvents: 'all',
+              background: '#1A1C1E',
+              border: '2px solid #E31E24',
+              borderRadius: 14,
+              padding: '14px 18px',
+              minWidth: 280,
+              maxWidth: 340,
+              boxShadow: '0 8px 32px rgba(227,30,36,0.35)',
+              animation: 'kdsSlideIn 0.35s cubic-bezier(0.2,0,0,1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+            }}
+          >
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#E31E24' }} />
+              <div style={{ position: 'absolute', top: -3, left: -3, width: 20, height: 20, borderRadius: '50%', border: '2px solid #E31E24', animation: 'kdsPulse 1.2s ease-out infinite' }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#E31E24', letterSpacing: '0.15em', textTransform: 'uppercase' }}>🔔 New Order!</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginTop: 2 }}>Table {alert.tableNum}</div>
+              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 1 }}>#{String(alert.orderNum).toUpperCase()}</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button
+                onClick={() => { setMobileCol('pending'); setActiveTab('Live Orders'); setIncomingAlerts(prev => prev.filter(x => x.id !== alert.id)); }}
+                style={{ background: '#E31E24', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+              >View</button>
+              <button
+                onClick={() => setIncomingAlerts(prev => prev.filter(x => x.id !== alert.id))}
+                style={{ background: 'transparent', color: '#9CA3AF', border: '1px solid #333', borderRadius: 8, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+              >Dismiss</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <style>{`
+        @keyframes kdsSlideIn {
+          from { opacity: 0; transform: translateX(60px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes kdsPulse {
+          0%  { transform: scale(1);   opacity: 0.9; }
+          80% { transform: scale(2.2); opacity: 0; }
+          100%{ transform: scale(2.2); opacity: 0; }
+        }
+      `}</style>
 
       {/* ━━━ HEADER ━━━ */}
       <header style={{

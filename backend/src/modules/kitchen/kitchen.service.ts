@@ -13,6 +13,7 @@ import { supabaseAdmin } from '../../config/supabase';
 import { KitchenStationRouter } from './kitchen-station-router';
 import { KitchenQueueProjectionService } from './kitchen-queue-projection.service';
 import { RealtimePublisherService } from '../realtime/realtime-publisher.service';
+import { WebSocketManager } from '../transport/websocket.manager';
 import { logger } from '../../shared/utils/logger';
 
 const VALID_KITCHEN_TRANSITIONS: Record<kitchenRepo.KitchenOrderStatus, kitchenRepo.KitchenOrderStatus[]> = {
@@ -156,6 +157,25 @@ export async function routeOrderToKitchen(tenantId: string, orderId: string): Pr
     await supabaseAdmin.removeChannel(broadcastChannel);
   } catch (realtimeErr: any) {
     logger.error({ realtimeErr: realtimeErr.message }, '[KitchenService] Realtime broadcast routing error.');
+  }
+
+  // ── Also broadcast via WebSocket so KDS frontend subscription fires immediately ──
+  try {
+    WebSocketManager.getInstance().broadcastToBranch(
+      order.branch_id,
+      'ORDERING',
+      'OPERATIONAL_STREAM',
+      'order_update',
+      {
+        kitchenOrderId: kitchenOrder.id,
+        orderId,
+        orderNumber: order.order_number,
+        status: 'pending',
+        branchId: order.branch_id,
+      }
+    );
+  } catch (wsErr: any) {
+    logger.error({ error: wsErr.message }, '[KitchenService] WebSocket broadcast routing error.');
   }
 
   return kitchenOrder;

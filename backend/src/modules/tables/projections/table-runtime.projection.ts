@@ -33,7 +33,7 @@ export async function rebuildTableProjection(
     domain: 'tables',
     aggregate_id: tableId,
     severity: 'INFO',
-          event_type: 'PROJECTION_REBUILD_STARTED',
+    event_type: 'PROJECTION_REBUILD_STARTED',
     metadata: { reason: 'DOMAIN_REBUILD' }
   });
 
@@ -51,7 +51,7 @@ export async function rebuildTableProjection(
       activeGuestCount = guests.length;
     }
   } catch (err) {
-    // Graceful fallback: table has a different schema (e.g. guest loyalty) or is missing
+    // Graceful fallback
   }
 
   // 2. Fetch active orders for this table
@@ -60,17 +60,21 @@ export async function rebuildTableProjection(
   try {
     const { data: orders, error: ordersErr } = await supabase
       .from('orders')
-      .select('id, status')
+      .select('id, status, payment_status')
       .eq('tenant_id', tenantId)
       .eq('table_id', tableId)
-      .in('status', ['open', 'preparing', 'served', 'payment_pending']);
+      .in('status', ['pending', 'accepted', 'preparing', 'ready', 'delivered']);
       
+    if (ordersErr) {
+      console.error('[TableProjection] Orders query error:', ordersErr);
+    }
+
     if (!ordersErr && orders) {
       activeOrderCount = orders.length;
-      paymentPendingCount = orders.filter(o => o.status === 'payment_pending').length;
+      paymentPendingCount = orders.filter(o => o.payment_status === 'pending').length;
     }
   } catch (err) {
-    // Graceful fallback
+    console.error('[TableProjection] Orders query exception:', err);
   }
 
   // 3. Fetch active assistance requests (waiter calls)

@@ -119,8 +119,8 @@ export default function CartDrawer({ open, onClose }) {
           rawRes.status === 401 ||
           res.error?.code === 'UNAUTHORIZED' ||
           res.error?.message?.toLowerCase().includes('session expired') ||
-          res.error?.message?.toLowerCase().includes('not found') ||
-          res.error?.message?.toLowerCase().includes('not active')
+          res.error?.message?.toLowerCase().includes('guest session not found') ||
+          res.error?.message?.toLowerCase().includes('guest session is not active')
         ) {
           sessionStorage.removeItem('qr_session_token');
           sessionStorage.removeItem('qr_session');
@@ -236,7 +236,7 @@ export default function CartDrawer({ open, onClose }) {
                     <p style={{ color: '#8B949E', fontSize: 12, marginBottom: 12 }}>
                       {isSessionError 
                         ? 'Your session has expired. Please scan the QR code again.'
-                        : 'Something went wrong. Please try again or ask staff for help.'
+                        : errorMsg || 'Something went wrong. Please try again or ask staff for help.'
                       }
                     </p>
                     {isSessionError && (
