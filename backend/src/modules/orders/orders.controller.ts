@@ -15,36 +15,28 @@ import { logger } from '../../shared/utils/logger';
 
 import { logMutationAudit, updateMutationAuditStatus } from '../idempotency/mutation-audit.repository';
 
-// Input Validation Schemas
+// ── Input Validation Schemas ───────────────────────────────────────────────
 const checkoutSchema = z.object({
   cartId: z.string().uuid(),
   tableId: z.string().uuid(),
   orderNotes: z.string().max(1000).optional(),
 });
 
-function formatMutationResponse(res: Response, status: number, data: any, ctx: any, serverCartRevision?: number) {
-  res.status(status).json({
-    success: true,
-    data,
-    mutation_ack: {
-      mutation_id: ctx.mutation_id,
-      acknowledged_at: new Date().toISOString(),
-      // Checkouts lock the cart, effectively making the revision irrelevant or finalized, but we pass it anyway if needed.
-      server_cart_revision: serverCartRevision ?? ctx.expected_cart_revision,
-    }
-  });
-}
+const directOrderSchema = z.object({
+  tableId: z.string().uuid(),
+  items: z.array(z.object({
+    menu_item_id: z.string().uuid(),
+    quantity: z.number().int().positive(),
+    modifiers: z.array(z.any()).optional(),
+    item_notes: z.string().optional(),
+  })).min(1),
+  orderNotes: z.string().max(1000).optional(),
+});
 
 const transitionStatusSchema = z.object({
   targetStatus: z.enum([
-    'pending',
-    'accepted',
-    'preparing',
-    'ready',
-    'delivered',
-    'completed',
-    'cancelled',
-    'sync_conflict',
+    'pending', 'accepted', 'preparing', 'ready',
+    'delivered', 'completed', 'cancelled', 'sync_conflict',
   ]),
   versionNum: z.number().int().positive(),
   reason: z.string().max(500).optional(),
@@ -54,17 +46,25 @@ const transitionStatusSchema = z.object({
 const listOrdersQuerySchema = z.object({
   branchId: z.string().uuid(),
   status: z.enum([
-    'pending',
-    'accepted',
-    'preparing',
-    'ready',
-    'delivered',
-    'completed',
-    'cancelled',
-    'sync_conflict',
+    'pending', 'accepted', 'preparing', 'ready',
+    'delivered', 'completed', 'cancelled', 'sync_conflict',
   ]).optional(),
 });
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+function formatMutationResponse(res: Response, status: number, data: any, ctx: any, serverCartRevision?: number) {
+  res.status(status).json({
+    success: true,
+    data,
+    mutation_ack: {
+      mutation_id: ctx.mutation_id,
+      acknowledged_at: new Date().toISOString(),
+      server_cart_revision: serverCartRevision ?? ctx.expected_cart_revision,
+    }
+  });
+}
+
+// ── Checkout Cart ──────────────────────────────────────────────────────────
 export async function checkoutCart(req: any, res: Response, next: any): Promise<void> {
   const ctx = req.mutationContext!;
   try {
@@ -74,8 +74,6 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
     }
 
     const { cartId, tableId, orderNotes } = parsed.data;
-
-    // Determine context tenant_id, qr session
     const tenantId = ctx.tenant_id || req.headers['x-tenant-id'] || req.qrSession?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant identification header or session context.', 400, ErrorCode.BAD_REQUEST);
@@ -83,7 +81,6 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
 
     void logMutationAudit({ ...ctx, mutation_type: 'orders.checkout', status: 'IN_FLIGHT' });
 
-    // QR sessions set source to 'qr_scan'
     const source = req.qrSession ? 'qr_scan' : 'staff_pos';
 
     const order = await ordersService.createOrderFromCart({
@@ -110,17 +107,7 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
   }
 }
 
-const directOrderSchema = z.object({
-  tableId: z.string().uuid(),
-  items: z.array(z.object({
-    menu_item_id: z.string().uuid(),
-    quantity: z.number().int().positive(),
-    modifiers: z.array(z.any()).optional(),
-    item_notes: z.string().optional(),
-  })).min(1),
-  orderNotes: z.string().max(1000).optional(),
-});
-
+// ── Create Direct Order (staff POS) ───────────────────────────────────────
 export async function createDirectOrder(req: any, res: Response, next: any): Promise<void> {
   const ctx = req.mutationContext!;
   try {
@@ -130,14 +117,11 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
     }
 
     const { tableId, items, orderNotes } = parsed.data;
-
-    // Determine context tenant_id, qr session
     const tenantId = ctx.tenant_id || req.headers['x-tenant-id'] || req.qrSession?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant identification header or session context.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    // QR sessions set source to 'qr_scan', staff app sets source to 'staff_pos'
     const source = req.qrSession ? 'qr_scan' : 'staff_pos';
     const branchId = req.qrSession?.branchId || req.context?.branchIds?.[0];
     if (!branchId) {
@@ -148,23 +132,16 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
 
     logger.info({
       stage: 'controller_entry_createDirectOrder',
-      tenantId,
-      branchId,
-      tableId,
+      tenantId, branchId, tableId,
       sessionId: req.qrSession?.id || req.context?.id,
       items,
     });
 
     const order = await ordersService.createDirectOrder({
-      tenantId,
-      branchId,
-      tableId,
-      sessionId: req.qrSession?.id || req.context?.id, // Use user ID as session for staff
-      items,
-      idempotencyKey: ctx.idempotency_key,
-      orderNotes,
-      source,
-      userId: req.context?.id,
+      tenantId, branchId, tableId,
+      sessionId: req.qrSession?.id || req.context?.id,
+      items, idempotencyKey: ctx.idempotency_key,
+      orderNotes, source, userId: req.context?.id,
     });
 
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
@@ -175,31 +152,27 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
   }
 }
 
+// ── Get Order Details ──────────────────────────────────────────────────────
 export async function getOrderDetails(req: any, res: Response, next: any): Promise<void> {
   try {
     const { id } = req.params;
     const tenantId = req.headers['x-tenant-id'] as string || req.qrSession?.tenant_id || req.context?.tenantId;
-
     if (!tenantId) {
       throw new AppError('Missing tenant identification context.', 400, ErrorCode.BAD_REQUEST);
     }
-
     const order = await ordersService.getOrder(tenantId, id);
-
-    res.status(200).json({
-      status: 'success',
-      data: { order },
-    });
+    res.status(200).json({ status: 'success', data: { order } });
   } catch (err) {
     next(err);
   }
 }
 
+// ── Get Pending Alerts ─────────────────────────────────────────────────────
 export async function getPendingAlerts(req: any, res: Response, next: any): Promise<void> {
   try {
     const { branchId } = z.object({ branchId: z.string().uuid() }).parse(req.query);
     const tenantId = req.context?.tenantId;
-    const staffId = req.context?.id;
+    const staffId  = req.context?.id;
     if (!tenantId || !staffId) throw new AppError('Unauthorized', 401, ErrorCode.UNAUTHORIZED);
 
     const orders = await ordersService.getPendingOrdersForStaff(tenantId, branchId, staffId);
@@ -209,6 +182,7 @@ export async function getPendingAlerts(req: any, res: Response, next: any): Prom
   }
 }
 
+// ── Transition Order Status ────────────────────────────────────────────────
 export async function transitionStatus(req: any, res: Response, next: any): Promise<void> {
   try {
     const { id } = req.params;
@@ -223,38 +197,29 @@ export async function transitionStatus(req: any, res: Response, next: any): Prom
     }
 
     const { targetStatus, versionNum, reason, cancellationReason } = parsed.data;
-
     const additionalFields: any = {};
     if (targetStatus === 'cancelled') {
       additionalFields.cancellation_reason = cancellationReason || 'Cancelled by staff/admin';
     }
 
     const order = await ordersService.transitionOrderStatus({
-      tenantId,
-      orderId: id,
-      targetStatus,
-      versionNum,
-      userId: req.context?.id,
-      reason,
-      additionalFields,
+      tenantId, orderId: id, targetStatus, versionNum,
+      userId: req.context?.id, reason, additionalFields,
     });
 
-    res.status(200).json({
-      status: 'success',
-      data: { order },
-    });
+    res.status(200).json({ status: 'success', data: { order } });
   } catch (err) {
     next(err);
   }
 }
 
+// ── Get Available Staff ────────────────────────────────────────────────────
 export async function getAvailableStaff(req: any, res: Response, next: any): Promise<void> {
   try {
     const { branchId } = z.object({ branchId: z.string().uuid() }).parse(req.query);
     const tenantId = req.context?.tenantId;
     if (!tenantId) throw new AppError('Unauthorized', 401, ErrorCode.UNAUTHORIZED);
 
-    // Fetch online/active staff members in this branch (those with active presence or recent activity)
     const { data, error } = await supabaseAdmin
       .from('staff')
       .select('id, name, first_name, last_name, role')
@@ -264,7 +229,6 @@ export async function getAvailableStaff(req: any, res: Response, next: any): Pro
 
     if (error) throw error;
 
-    // Get active order counts per staff
     const staffIds = (data ?? []).map((s: any) => s.id);
     let orderCounts: Record<string, number> = {};
 
@@ -295,6 +259,7 @@ export async function getAvailableStaff(req: any, res: Response, next: any): Pro
   }
 }
 
+// ── List Branch Orders ─────────────────────────────────────────────────────
 export async function listBranchOrders(req: any, res: Response, next: any): Promise<void> {
   try {
     const parsed = listOrdersQuerySchema.safeParse(req.query);
@@ -308,22 +273,59 @@ export async function listBranchOrders(req: any, res: Response, next: any): Prom
     }
 
     const { branchId, status } = parsed.data;
-
     const orders = await ordersService.listBranchOrders(tenantId, branchId, { status: status as OrderStatus });
-
-    res.status(200).json({
-      status: 'success',
-      data: { orders },
-    });
+    res.status(200).json({ status: 'success', data: { orders } });
   } catch (err) {
     next(err);
   }
 }
 
-export async function acceptOrderAlert(_req: any, res: any, _next: any) {
-  res.status(200).json({ success: true });
+// ── Accept Order Alert (staff self-accepts from Staff App) ─────────────────
+export async function acceptOrderAlert(req: any, res: Response, next: any): Promise<void> {
+  try {
+    const orderId  = req.params.id;
+    const tenantId = req.context?.tenantId || req.context?.tenant_id;
+    const staffId  = req.context?.id || req.context?.userId; // staff.id from Runtime JWT payload.sub
+
+    if (!tenantId || !staffId) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Staff authentication required' } });
+      return;
+    }
+
+    const { versionNum } = req.body || {};
+    if (!versionNum) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'versionNum is required' } });
+      return;
+    }
+
+    const updatedOrder = await ordersService.acceptOrder({ tenantId, orderId, staffId, versionNum });
+    res.status(200).json({ success: true, data: { order: updatedOrder } });
+  } catch (err) {
+    next(err);
+  }
 }
 
-export async function reassignOrderAlert(_req: any, res: any, _next: any) {
-  res.status(200).json({ success: true });
+// ── Reassign Order (pass to another staff member) ─────────────────────────
+export async function reassignOrderAlert(req: any, res: Response, next: any): Promise<void> {
+  try {
+    const orderId     = req.params.id;
+    const tenantId    = req.context?.tenantId || req.context?.tenant_id;
+    const fromStaffId = req.context?.id || req.context?.userId;
+
+    if (!tenantId || !fromStaffId) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Staff authentication required' } });
+      return;
+    }
+
+    const { toStaffId, branchId } = req.body || {};
+    if (!toStaffId || !branchId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'toStaffId and branchId are required' } });
+      return;
+    }
+
+    await ordersService.reassignOrder({ tenantId, orderId, fromStaffId, toStaffId, branchId });
+    res.status(200).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
 }
