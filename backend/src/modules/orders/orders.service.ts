@@ -296,19 +296,26 @@ async function _dispatchOrderAssignedEvent(
   cartItems: any[]
 ): Promise<void> {
   try {
-    // Fetch table to get assigned_waiter_id and table_number
-    const { data: tableData } = await supabaseAdmin
+    // Fetch table — column is assigned_staff_id (not assigned_waiter_id)
+    const { data: tableData, error: tableError } = await supabaseAdmin
       .from('tables')
-      .select('table_number, assigned_waiter_id')
+      .select('table_number, display_name, assigned_staff_id')
       .eq('id', order.table_id)
       .maybeSingle();
 
-    const assignedStaffId = tableData?.assigned_waiter_id ?? null;
-    const tableNumber = tableData?.table_number ?? 'N/A';
+    if (tableError) {
+      console.error('[OrderAlert] Table query error:', tableError.message);
+    }
 
-    // Calculate total from cart items
-    const totalAmountMinor = cartItems.reduce(
-      (sum, item) => sum + (item.unit_price_minor_snapshot ?? 0) * (item.quantity ?? 1),
+    const assignedStaffId = tableData?.assigned_staff_id ?? null;
+    // Prefer display_name, fall back to table_number
+    const tableNumber = tableData?.display_name ?? tableData?.table_number ?? 'N/A';
+
+    // Use order.items (order_items rows) for accurate item data.
+    // Columns: name, qty, unit_price (in minor units).
+    const orderItems: any[] = (order as any).items ?? [];
+    const totalAmountMinor = orderItems.reduce(
+      (sum: number, item: any) => sum + (item.unit_price ?? 0) * (item.qty ?? 1),
       0
     );
 
@@ -319,13 +326,13 @@ async function _dispatchOrderAssignedEvent(
       tableNumber,
       tenantId,
       assignedStaffId,       // null = broadcast to all (manager fallback)
-      itemCount: cartItems.length,
+      itemCount: orderItems.length || cartItems.length,
       totalAmountMinor,
       orderTime: order.created_at,
       versionNum: order.version_num,   // ← OCC version for accept action
-      items: cartItems.map(i => ({
-        name: i.item_name_snapshot,
-        quantity: i.quantity,
+      items: orderItems.map((i: any) => ({
+        name: i.name ?? i.item_name_snapshot ?? 'Item',
+        quantity: i.qty ?? i.quantity ?? 1,
       })),
     };
 
@@ -444,13 +451,13 @@ export async function transitionOrderStatus(params: {
     try {
       const { data: tableData } = await supabaseAdmin
         .from('tables')
-        .select('table_number, assigned_waiter_id')
+        .select('table_number, display_name, assigned_staff_id')
         .eq('id', order.table_id)
         .maybeSingle();
 
       if (tableData) {
-        tableNumber = tableData.table_number ?? 'N/A';
-        assignedStaffId = tableData.assigned_waiter_id ?? null;
+        tableNumber = tableData.display_name ?? tableData.table_number ?? 'N/A';
+        assignedStaffId = tableData.assigned_staff_id ?? null;
       }
     } catch (err) {
       console.error('[OrderAlert] Failed to fetch table details:', err);
@@ -555,12 +562,22 @@ export async function acceptOrder(params: {
 
   let staffName = 'Unknown Staff';
   try {
-    const { data } = await supabaseAdmin
+    // Try staff.id first (Runtime JWT uses staff table PK as sub)
+    let { data: staffRow } = await supabaseAdmin
       .from('staff')
       .select('name')
       .eq('id', staffId)
-      .single();
-    if (data && data.name) staffName = data.name;
+      .maybeSingle();
+    // Fallback: try staff.user_id (Supabase JWT uses auth user UUID as sub)
+    if (!staffRow) {
+      const { data: staffRow2 } = await supabaseAdmin
+        .from('staff')
+        .select('name')
+        .eq('user_id', staffId)
+        .maybeSingle();
+      staffRow = staffRow2;
+    }
+    if (staffRow?.name) staffName = staffRow.name;
   } catch (err) {
     console.error('[OrderAlert] Failed to fetch staff name:', err);
   }
@@ -613,7 +630,7 @@ export async function reassignOrder(params: {
 
   const { data: tableData } = await supabaseAdmin
     .from('tables')
-    .select('table_number')
+    .select('table_number, display_name')
     .eq('id', order.table_id)
     .maybeSingle();
 
@@ -622,7 +639,7 @@ export async function reassignOrder(params: {
     orderId,
     orderNumber: order.order_number,
     tableId: order.table_id,
-    tableNumber: tableData?.table_number ?? 'N/A',
+    tableNumber: tableData?.display_name ?? tableData?.table_number ?? 'N/A',
     tenantId,
     assignedStaffId: toStaffId,
     fromStaffId,
