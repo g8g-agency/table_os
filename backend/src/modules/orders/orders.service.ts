@@ -18,6 +18,7 @@ import { WebSocketManager } from '../transport/websocket.manager';
 import * as cartService from '../cart/cart.service';
 import * as kitchenService from '../kitchen/kitchen.service';
 import { logger } from '../../shared/utils/logger';
+import { rebuildTableProjection } from '../tables/projections/table-runtime.projection';
 
 export async function createDirectOrder(params: {
   tenantId: string;
@@ -412,17 +413,24 @@ export async function transitionOrderStatus(params: {
     });
   }
   
-  // 4.6. Extend Guest Session expiry for post-payment review window
+  // 4.6. Deactivate Guest Session immediately upon payment completion to vacant the table
   if (targetStatus === 'completed' && order.session_id) {
     try {
-      const expiresAt = new Date(new Date().getTime() + 10 * 60000).toISOString();
       await supabaseAdmin
         .from('guest_sessions')
-        .update({ expires_at: expiresAt })
+        .update({
+          is_active: false,
+          ended_at: new Date().toISOString(),
+          resolved_at: new Date().toISOString(),
+          closed_reason: 'completed',
+        })
         .eq('id', order.session_id)
         .eq('tenant_id', tenantId);
+        
+      // Rebuild projection so table state updates to FREE/Vacant immediately
+      await rebuildTableProjection(supabaseAdmin, tenantId, order.table_id);
     } catch (err: any) {
-      logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to extend guest session for review window');
+      logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to deactivate guest session / rebuild table projection on completion');
     }
   }
 

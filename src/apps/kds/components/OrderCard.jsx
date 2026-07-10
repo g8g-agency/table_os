@@ -304,7 +304,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               width: 'max-content'
             }}>
               <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>badge</span>
-              Staff: {order.assignedStaffName || order.assignedStaffId}
+              Assigned Waiter - {order.assignedStaffName || order.assignedStaffId}
             </div>
           )}
         </div>

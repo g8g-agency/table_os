@@ -52,6 +52,15 @@ export async function acquireLock(
       if (existing) {
         return existing;
       }
+
+      // Record exists but is expired. Delete it and retry.
+      await supabaseAdmin
+        .from('idempotency_keys')
+        .delete()
+        .eq('tenant_id', tenantId)
+        .eq('idempotency_key', key);
+
+      return acquireLock(tenantId, key, path, expiresInSeconds);
     }
     throw new AppError(`Failed to acquire idempotency lock: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
@@ -90,13 +99,12 @@ export async function saveResponse(
   const { error } = await supabaseAdmin
     .from('idempotency_keys')
     .update({
-      status: 'completed',
       response_status: responseStatus,
       response_body: responseBody,
+      status: 'completed',
     })
     .eq('tenant_id', tenantId)
-    .eq('idempotency_key', key)
-    .eq('status', 'started');
+    .eq('idempotency_key', key);
 
   if (error) {
     throw new AppError(`Failed to save idempotency response: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);

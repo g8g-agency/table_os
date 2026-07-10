@@ -45,7 +45,7 @@ export async function rebuildTableProjection(
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('table_id', tableId)
-      .eq('status', 'active');
+      .eq('is_active', true);
     
     if (!guestsErr && guests) {
       activeGuestCount = guests.length;
