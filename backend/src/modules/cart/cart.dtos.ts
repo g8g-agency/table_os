@@ -45,4 +45,15 @@ export interface CartDetailDto {
   cart: Cart;
   items: CartItem[];
   modifiers: CartItemModifier[];
+  totals?: {
+    subtotal_minor: number;
+    discount_minor: number;
+    service_charge_minor: number;
+    tax_breakdown: Array<{
+      tax_profile_name: string;
+      tax_amount_minor: number;
+    }>;
+    total_tax_minor: number;
+    grand_total_minor: number;
+  };
 }

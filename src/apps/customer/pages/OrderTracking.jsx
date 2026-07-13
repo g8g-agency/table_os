@@ -556,8 +556,8 @@ export default function OrderTracking() {
         />
       )}
 
-      {/* THANK YOU SCREEN — shown when order is served, or after review */}
-      {['served', 'delivered', 'completed'].includes(orderStatus) && (orderStatus !== 'completed' || order?.review_completed_at || order?.review_skipped_at) && (
+      {/* THANK YOU SCREEN — shown after payment completes */}
+      {orderStatus === 'completed' && (orderStatus !== 'completed' || order?.review_completed_at || order?.review_skipped_at) && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 100,
           minHeight: '100vh',

@@ -59,10 +59,11 @@ export interface Table {
   section_id: string | null;
   sort_order: number;
   assigned_waiter_id: string | null;
-  notes: string | null;
   is_active: boolean;
   qr_token: string | null;
   qr_url: string | null;
+  runtime_state?: TableRuntimeState;
+  customer_payment_intent?: 'cash' | 'upi' | null;
   version_num: number;
   created_by: string | null;
   updated_by: string | null;
@@ -78,9 +79,9 @@ export interface TableRuntimeProjection {
   table_id: string;
   tenant_id: string;
   active_guest_count: number;
-  active_order_count: number;
   assistance_request_count: number;
   runtime_state: TableRuntimeState;
+  customer_payment_intent: 'cash' | 'upi' | null;
   updated_at: string;
 }
 

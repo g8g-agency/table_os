@@ -30,6 +30,7 @@ export async function createDirectOrder(params: {
   orderNotes?: string;
   source: ordersRepo.OrderSource;
   userId?: string;
+  customerName?: string;
 }): Promise<ordersRepo.Order> {
   logger.info({
     stage: 'service_entry_createDirectOrder',
@@ -77,6 +78,7 @@ export async function createDirectOrder(params: {
     orderNotes: params.orderNotes,
     source: params.source,
     userId: params.userId,
+    customerName: params.customerName,
   });
 }
 
@@ -101,8 +103,9 @@ export async function createOrderFromCart(params: {
   orderNotes?: string;
   source: ordersRepo.OrderSource;
   userId?: string;
+  customerName?: string;
 }): Promise<ordersRepo.Order> {
-  const { tenantId, cartId, idempotencyKey, expectedCartRevision } = params;
+  const { tenantId, cartId, idempotencyKey, expectedCartRevision, customerName } = params;
 
   // 1. Idempotency Check
   if (idempotencyKey) {
@@ -173,7 +176,7 @@ export async function createOrderFromCart(params: {
   }
 
   // 4. Create immutable order snapshots (reads cart, runs database-level snapshot inserts)
-  const snapshotId = await createOrderSnapshot(tenantId, cartId, cart.version_num);
+  const snapshotId = await createOrderSnapshot(tenantId, cartId, cart.version_num, customerName);
 
   // 4. Generate client side UUIDs for the transaction
     const orderId = crypto.randomUUID();
@@ -258,7 +261,34 @@ export async function createOrderFromCart(params: {
       throw new AppError(`Atomic transaction failed: ${error!.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
 
-    const response = data as { order_id: string; invoice_id: string; kitchen_order_id: string; status: ordersRepo.OrderStatus };
+    // Explicitly update customer_name on orders since the RPC might not support it yet
+    if (customerName) {
+      await supabaseAdmin.from('orders').update({ customer_name: customerName }).eq('id', orderId).eq('tenant_id', tenantId);
+    }
+
+    const response = data as { order_id: string; invoice_id: string; status: string };
+    
+    // 7. Route to Kitchen (Compensating Transaction Saga)
+    let kitchenOrder;
+    try {
+      kitchenOrder = await kitchenService.routeOrderToKitchen(tenantId, orderId);
+    } catch (err: any) {
+      logger.error({ err: err.message, orderId }, 'Failed to route order to kitchen. Executing compensating transaction to cancel order.');
+      
+      // Compensating transaction: Cancel the order immediately to prevent stranding
+      await supabaseAdmin.from('orders').update({
+        status: 'cancelled',
+        cancellation_reason: 'System failure: Kitchen routing aborted',
+        cancelled_at: new Date().toISOString()
+      }).eq('id', orderId).eq('tenant_id', tenantId);
+      
+      // We also need to invalidate the invoice
+      await supabaseAdmin.from('invoices').update({
+        status: 'voided'
+      }).eq('order_id', orderId).eq('tenant_id', tenantId);
+
+      throw new AppError('Failed to complete checkout: Kitchen routing failed. Order was cancelled.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
     
     // Fetch the fully populated order since the RPC only returns IDs
     const createdOrder = await ordersRepo.getOrderById(tenantId, response.order_id);

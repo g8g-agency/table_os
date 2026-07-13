@@ -24,6 +24,7 @@ export function tenantContext(req: Request, _res: Response, next: NextFunction):
   }
 
   if (!req.context.tenantId) {
+    console.error(`[tenantContext] 403 FORBIDDEN. User is not associated with any tenant. Context:`, req.context);
     return next(new ForbiddenError('User is not associated with any tenant'));
   }
 
@@ -32,6 +33,7 @@ export function tenantContext(req: Request, _res: Response, next: NextFunction):
   const requestedTenantId = req.params.tenantId || req.body.tenantId || req.query.tenantId;
   
   if (requestedTenantId && requestedTenantId !== req.context.tenantId) {
+    console.error(`[tenantContext] 403 FORBIDDEN. Cross-tenant access. JWT tenant: ${req.context.tenantId}, requested: ${requestedTenantId}`);
     return next(new ForbiddenError('Cross-tenant data access is strictly prohibited'));
   }
 

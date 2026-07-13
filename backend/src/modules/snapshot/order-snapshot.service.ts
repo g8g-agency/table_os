@@ -16,6 +16,7 @@ export async function createOrderSnapshot(
   tenantId: string,
   cartId: string,
   versionNum: number,
+  customerName?: string | null
 ): Promise<string> {
   // 1. Fetch the cart to ensure it hasn't been modified
   const currentCart = await cartRepo.findCartById(tenantId, cartId);
@@ -224,6 +225,7 @@ export async function createOrderSnapshot(
       .insert({
         tenant_id: tenantId,
         branch_id: currentCart.branch_id,
+        customer_name: customerName ?? null,
         subtotal_minor: calculatedSubtotal,
         tax_total_minor: calculatedTaxTotal,
         discount_total_minor: 0,

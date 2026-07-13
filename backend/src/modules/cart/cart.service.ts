@@ -31,7 +31,8 @@ export async function getOrCreateCart(
   const itemIds = items.map((i) => i.id);
   const modifiers = itemIds.length > 0 ? await cartRepo.listCartItemModifiers(itemIds) : [];
 
-  return { cart, items, modifiers };
+  const totals = await _calculateCartTotals(tenantId, cart.branch_id, items, modifiers);
+  return { cart, items, modifiers, totals };
 }
 
 export async function getCartDetail(tenantId: string, sessionId: string): Promise<CartDetailDto> {
@@ -44,7 +45,8 @@ export async function getCartDetail(tenantId: string, sessionId: string): Promis
   const itemIds = items.map((i) => i.id);
   const modifiers = itemIds.length > 0 ? await cartRepo.listCartItemModifiers(itemIds) : [];
 
-  return { cart, items, modifiers };
+  const totals = await _calculateCartTotals(tenantId, cart.branch_id, items, modifiers);
+  return { cart, items, modifiers, totals };
 }
 
 export async function addCartItem(
@@ -235,4 +237,139 @@ export async function updateCartNotes(
   }
 
   return getCartDetail(tenantId, sessionId);
+}
+
+async function _calculateCartTotals(
+  tenantId: string,
+  branchId: string,
+  items: any[],
+  modifiers: any[]
+): Promise<CartDetailDto['totals']> {
+  if (items.length === 0) {
+    return {
+      subtotal_minor: 0,
+      discount_minor: 0,
+      service_charge_minor: 0,
+      tax_breakdown: [],
+      total_tax_minor: 0,
+      grand_total_minor: 0,
+    };
+  }
+
+  const resolutionService = new BranchMenuResolutionService(supabaseAdmin);
+  const effectiveMenu = await resolutionService.resolveEffectiveMenu({
+    tenantId,
+    branchId,
+    timestamp: new Date().toISOString(),
+  });
+
+  const menuItemsMap = new Map<string, any>();
+  for (const cat of effectiveMenu.categories) {
+    for (const it of cat.items) {
+      menuItemsMap.set(it.id, { ...it, categoryName: cat.name });
+    }
+  }
+
+  let calculatedSubtotal = 0;
+  const itemCalculatedLines: any[] = [];
+
+  for (const item of items) {
+    const liveItem = menuItemsMap.get(item.menu_item_id);
+    // If not visible, we skip in cart calculation, or fallback to snapshot price
+    const liveUnitPrice = liveItem && liveItem.is_visible ? liveItem.price.price_minor : Number(item.unit_price_minor_snapshot);
+
+    const itemModifiers = modifiers.filter((m) => m.cart_item_id === item.id);
+    let itemModifiersTotal = 0;
+
+    for (const mod of itemModifiers) {
+      let modPrice = Number(mod.price_delta_minor_snapshot);
+      if (liveItem) {
+        const group = liveItem.modifier_groups.find((g: any) => g.id === mod.modifier_group_id);
+        if (group) {
+          const option = group.options.find((o: any) => o.id === mod.modifier_option_id);
+          if (option) {
+            modPrice = Number(option.price_delta_minor);
+          }
+        }
+      }
+      itemModifiersTotal += modPrice;
+    }
+
+    const itemLineTotal = (liveUnitPrice + itemModifiersTotal) * item.quantity;
+    calculatedSubtotal += itemLineTotal;
+
+    itemCalculatedLines.push({
+      menu_item_id: item.menu_item_id,
+      line_total_minor: itemLineTotal,
+    });
+  }
+
+  const menuItemIds = items.map((i) => i.menu_item_id);
+  const { data: taxBatch, error: taxError } = await supabaseAdmin.rpc('resolve_tax_for_menu_items_batch', {
+    p_tenant_id: tenantId,
+    p_menu_item_ids: menuItemIds,
+    p_effective_at: new Date().toISOString(),
+  });
+
+  const taxBatchResults = (taxBatch ?? []) as any[];
+  const taxProfilesMap = new Map<string, any>();
+  for (const r of taxBatchResults) {
+    taxProfilesMap.set(r.menu_item_id, r);
+  }
+
+  const taxProfileIds = Array.from(new Set(taxBatchResults.map((r) => r.tax_profile_id)));
+  let taxProfiles: any[] = [];
+  if (taxProfileIds.length > 0) {
+    const { data } = await supabaseAdmin
+      .from('tax_profiles')
+      .select('id, name')
+      .in('id', taxProfileIds);
+    taxProfiles = data ?? [];
+  }
+
+  const taxProfileNameMap = new Map<string, string>();
+  for (const p of taxProfiles) {
+    taxProfileNameMap.set(p.id, p.name);
+  }
+
+  const taxCalculations = new Map<string, {
+    tax_profile_name: string;
+    tax_amount_minor: number;
+  }>();
+
+  let calculatedTaxTotal = 0;
+
+  for (const line of itemCalculatedLines) {
+    const taxInfo = taxProfilesMap.get(line.menu_item_id);
+    if (!taxInfo || taxInfo.total_basis_points === 0) continue;
+
+    const profileName = taxProfileNameMap.get(taxInfo.tax_profile_id) ?? 'Tax';
+    const existingCalc = taxCalculations.get(taxInfo.tax_profile_id) ?? {
+      tax_profile_name: profileName,
+      tax_amount_minor: 0,
+    };
+
+    let lineTaxAmount = 0;
+    if (taxInfo.calculation_mode === 'inclusive') {
+      const base = Math.round((line.line_total_minor * 10000) / (10000 + taxInfo.total_basis_points));
+      lineTaxAmount = line.line_total_minor - base;
+    } else {
+      lineTaxAmount = Math.round((line.line_total_minor * taxInfo.total_basis_points) / 10000);
+      calculatedTaxTotal += lineTaxAmount;
+    }
+
+    existingCalc.tax_amount_minor += lineTaxAmount;
+    taxCalculations.set(taxInfo.tax_profile_id, existingCalc);
+  }
+
+  const calculatedGrandTotal = calculatedSubtotal + calculatedTaxTotal;
+
+  return {
+    subtotal_minor: calculatedSubtotal,
+    discount_minor: 0,
+    service_charge_minor: 0,
+    tax_breakdown: Array.from(taxCalculations.values()),
+    total_tax_minor: calculatedTaxTotal,
+    grand_total_minor: calculatedGrandTotal,
+  };
 }

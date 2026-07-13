@@ -168,6 +168,7 @@ export class KitchenQueueProjectionService {
           orderId: ticket.order_id,
           orderNumber: ticket.orders?.order_number || 'UNKNOWN',
           tableNumber: ticket.orders?.tables?.table_number || 'T0',
+          customerName: 'GUEST', // QR orders are anonymous; no customer_name in orders table
           status: ticket.status,
           priority: ticket.priority,
           estimatedPrepSeconds,

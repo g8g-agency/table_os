@@ -94,3 +94,7 @@ export async function listReviews(
 ): Promise<reviewsRepo.Review[]> {
   return reviewsRepo.listReviews(tenantId, branchId, limit, offset);
 }
+
+export async function getReviewAnalytics(tenantId: string, branchId?: string): Promise<any> {
+  return reviewsRepo.getReviewAnalytics(tenantId, branchId);
+}

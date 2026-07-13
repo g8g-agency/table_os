@@ -84,3 +84,19 @@ export async function listReviews(req: Request, res: Response, next: NextFunctio
     next(err);
   }
 }
+
+export async function getReviewAnalytics(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const tenantId = req.context?.tenantId;
+    if (!tenantId) {
+      throw new AppError('Tenant context missing', 400, ErrorCode.BAD_REQUEST);
+    }
+    const branchId = req.query.branchId as string | undefined;
+
+    const analytics = await reviewsService.getReviewAnalytics(tenantId, branchId);
+
+    res.status(200).json({ success: true, data: analytics });
+  } catch (err) {
+    next(err);
+  }
+}

@@ -14,6 +14,7 @@ export interface TableRuntimeState {
   active_order_count: number;
   assistance_request_count: number;
   runtime_state: 'FREE' | 'ACTIVE_GUESTS' | 'ORDERING' | 'PAYMENT_PENDING' | 'ASSISTANCE_REQUESTED';
+  customer_payment_intent?: 'cash' | 'upi' | null;
   updated_at: string;
 }
 
@@ -57,13 +58,15 @@ export async function rebuildTableProjection(
   // 2. Fetch active orders for this table
   let activeOrderCount = 0;
   let paymentPendingCount = 0;
+  let customerPaymentIntent: 'cash' | 'upi' | null = null;
+  
   try {
     const { data: orders, error: ordersErr } = await supabase
       .from('orders')
-      .select('id, status, payment_status')
+      .select('id, status, customer_payment_intent')
       .eq('tenant_id', tenantId)
       .eq('table_id', tableId)
-      .in('status', ['pending', 'accepted', 'preparing', 'ready', 'delivered']);
+      .in('status', ['open', 'pending', 'accepted', 'preparing', 'ready', 'delivered']); // Active orders
       
     if (ordersErr) {
       console.error('[TableProjection] Orders query error:', ordersErr);
@@ -71,7 +74,12 @@ export async function rebuildTableProjection(
 
     if (!ordersErr && orders) {
       activeOrderCount = orders.length;
-      paymentPendingCount = orders.filter(o => o.payment_status === 'pending').length;
+      // Payment is requested if any active order has a customer_payment_intent
+      const paymentOrder = orders.find(o => o.customer_payment_intent != null);
+      if (paymentOrder) {
+        paymentPendingCount = 1;
+        customerPaymentIntent = paymentOrder.customer_payment_intent as 'cash' | 'upi';
+      }
     }
   } catch (err) {
     console.error('[TableProjection] Orders query exception:', err);
@@ -113,7 +121,8 @@ export async function rebuildTableProjection(
     active_guest_count: activeGuestCount,
     active_order_count: activeOrderCount,
     assistance_request_count: assistanceRequestCount,
-    runtime_state: runtimeState
+    runtime_state: runtimeState,
+    customer_payment_intent: customerPaymentIntent
   };
 
   // 5. Upsert projection

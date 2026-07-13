@@ -23,6 +23,7 @@ export interface ActiveKitchenOrderProjection {
   orderId: string;
   orderNumber: string;
   tableNumber: string;
+  customerName: string;
   status: 'pending' | 'accepted' | 'preparing' | 'ready' | 'delivered';
   priority: number;
   estimatedPrepSeconds: number;

@@ -53,6 +53,7 @@ export interface Order {
   review_completed_at?: string | null;
   review_skipped_at?: string | null;
   review_expires_at?: string | null;
+  customer_payment_intent?: 'cash' | 'upi' | null;
 }
 
 export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'created_at' | 'updated_at'>): Promise<Order> {

@@ -418,9 +418,12 @@ export async function validateAccessToken(accessToken: string): Promise<TokenVal
   // Suspended/locked accounts will not be blocked until the token expires (up to 1 hour).
   const appMeta = decodedToken.app_metadata || {};
   const userMeta = decodedToken.user_metadata || {};
-  
   const tenantId = appMeta.tenant_id as string | null;
-  const role = appMeta.rbac_role as Role;
+  
+  // Normalize role to match RBAC constants
+  let roleStr = (appMeta.rbac_role || 'STAFF').toUpperCase();
+  if (roleStr === 'WAITER') roleStr = 'SERVER';
+  const role = roleStr as Role;
   
   if (!tenantId && role !== 'SUPER_ADMIN') {
     return { valid: false, error: 'User has no tenant assigned. Contact support.' };

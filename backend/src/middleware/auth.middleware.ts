@@ -137,6 +137,7 @@ export function requireRole(...allowedRoles: Role[]) {
       return next();
     }
 
+    console.error(`[requireRole] 403 FORBIDDEN. User role: ${req.context.role}. Required: ${allowedRoles.join(', ')}`);
     return next(
       new ForbiddenError(
         `Role '${req.context.role}' is not permitted. Required: ${allowedRoles.join(', ')}`
@@ -164,6 +165,7 @@ export function requireMinRole(minimumRole: Role) {
       return next();
     }
 
+    console.error(`[requireMinRole] 403 FORBIDDEN. User role: ${req.context.role} (Level: ${userLevel}). Required: ${minimumRole} (Level: ${requiredLevel})`);
     return next(
       new ForbiddenError(
         `Minimum role '${minimumRole}' required. Your role: '${req.context.role}'`
@@ -185,6 +187,7 @@ export function requirePermission(permission: Permission) {
 
     if (req.context.permissions.has(permission)) return next();
 
+    console.error(`[requirePermission] 403 FORBIDDEN. Missing permission: ${permission}. User permissions:`, Array.from(req.context.permissions));
     return next(new ForbiddenError(`Missing permission: ${permission}`));
   };
 }
@@ -280,6 +283,7 @@ export function requireBranchAccess(branchIdParam = 'branchId') {
     }
 
     if (!req.context.branchIds.includes(requestedBranchId)) {
+      console.error(`[requireBranchAccess] 403 FORBIDDEN. User branchIds: ${req.context.branchIds.join(', ')}. Requested branchId: ${requestedBranchId}`);
       return next(new ForbiddenError('Access to this branch is not permitted'));
     }
 

@@ -20,7 +20,7 @@ import type {
 export async function findTableById(tenantId: string, tableId: string): Promise<Table | null> {
   const { data, error } = await supabaseAdmin
     .from('tables')
-    .select('*, table_runtime_projections(runtime_state)')
+    .select('*, table_runtime_projections(runtime_state, customer_payment_intent)')
     .eq('tenant_id', tenantId)
     .eq('id', tableId)
     .is('deleted_at', null)
@@ -34,6 +34,7 @@ export async function findTableById(tenantId: string, tableId: string): Promise<
   return {
     ...data,
     runtime_state: (data as any).table_runtime_projections?.runtime_state ?? 'FREE',
+    customer_payment_intent: (data as any).table_runtime_projections?.customer_payment_intent ?? null,
   } as any;
 }
 
@@ -44,7 +45,7 @@ export async function findTableByNumber(
 ): Promise<Table | null> {
   const { data, error } = await supabaseAdmin
     .from('tables')
-    .select('*, table_runtime_projections(runtime_state)')
+    .select('*, table_runtime_projections(runtime_state, customer_payment_intent)')
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .eq('table_number', tableNumber)
@@ -58,6 +59,7 @@ export async function findTableByNumber(
   return {
     ...data,
     runtime_state: (data as any).table_runtime_projections?.runtime_state ?? 'FREE',
+    customer_payment_intent: (data as any).table_runtime_projections?.customer_payment_intent ?? null,
   } as any;
 }
 
@@ -71,7 +73,7 @@ export async function listTables(
 
   let q = supabaseAdmin
     .from('tables')
-    .select('*, table_runtime_projections(runtime_state)', { count: 'exact' })
+    .select('*, table_runtime_projections(runtime_state, customer_payment_intent)', { count: 'exact' })
     .eq('tenant_id', tenantId)
     .eq('is_active', true);
 
@@ -105,7 +107,7 @@ export async function listTables(
         throw new Error(`[TableRepo] listTables: ${fallbackError.message}`);
       }
 
-      const mapped = (fallbackData ?? []).map(t => ({ ...t, runtime_state: 'FREE' }));
+      const mapped = (fallbackData ?? []).map(t => ({ ...t, runtime_state: 'FREE', customer_payment_intent: null }));
       return { data: mapped as any, total: fallbackCount ?? 0 };
     }
 
@@ -116,6 +118,7 @@ export async function listTables(
   const mapped = (data ?? []).map(t => ({
     ...t,
     runtime_state: (t as any).table_runtime_projections?.runtime_state ?? 'FREE',
+    customer_payment_intent: (t as any).table_runtime_projections?.customer_payment_intent ?? null,
   }));
   return { data: mapped as any, total: count ?? 0 };
 }

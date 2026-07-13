@@ -62,3 +62,39 @@ export async function listReviews(tenantId: string, branchId?: string, limit: nu
   }
   return data || [];
 }
+
+export async function getReviewAnalytics(tenantId: string, branchId?: string): Promise<any> {
+  let query = supabaseAdmin
+    .from('reviews')
+    .select('rating', { count: 'exact' })
+    .eq('tenant_id', tenantId);
+
+  if (branchId) {
+    query = query.eq('branch_id', branchId);
+  }
+
+  const { data, count, error } = await query;
+  if (error) {
+    throw error;
+  }
+
+  const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  let totalRating = 0;
+
+  if (data) {
+    data.forEach(r => {
+      if (r.rating >= 1 && r.rating <= 5) {
+        distribution[r.rating as 1|2|3|4|5]++;
+        totalRating += r.rating;
+      }
+    });
+  }
+
+  const average_rating = count && count > 0 ? totalRating / count : 0;
+
+  return {
+    average_rating,
+    total_reviews: count,
+    distribution,
+  };
+}

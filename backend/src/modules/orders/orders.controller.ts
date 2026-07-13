@@ -20,6 +20,7 @@ const checkoutSchema = z.object({
   cartId: z.string().uuid(),
   tableId: z.string().uuid(),
   orderNotes: z.string().max(1000).optional(),
+  customerName: z.string().max(255).optional(),
 });
 
 const directOrderSchema = z.object({
@@ -31,6 +32,7 @@ const directOrderSchema = z.object({
     item_notes: z.string().optional(),
   })).min(1),
   orderNotes: z.string().max(1000).optional(),
+  customerName: z.string().max(255).optional(),
 });
 
 const transitionStatusSchema = z.object({
@@ -73,7 +75,9 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
       throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
     }
 
-    const { cartId, tableId, orderNotes } = parsed.data;
+    const { cartId, tableId, orderNotes, customerName } = parsed.data;
+
+    // Determine context tenant_id, qr session
     const tenantId = ctx.tenant_id || req.headers['x-tenant-id'] || req.qrSession?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant identification header or session context.', 400, ErrorCode.BAD_REQUEST);
@@ -93,6 +97,7 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
       orderNotes,
       source,
       userId: req.context?.id,
+      customerName,
     });
 
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
@@ -116,7 +121,9 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
       throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
     }
 
-    const { tableId, items, orderNotes } = parsed.data;
+    const { tableId, items, orderNotes, customerName } = parsed.data;
+
+    // Determine context tenant_id, qr session
     const tenantId = ctx.tenant_id || req.headers['x-tenant-id'] || req.qrSession?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant identification header or session context.', 400, ErrorCode.BAD_REQUEST);
@@ -138,10 +145,16 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
     });
 
     const order = await ordersService.createDirectOrder({
-      tenantId, branchId, tableId,
-      sessionId: req.qrSession?.id || req.context?.id,
-      items, idempotencyKey: ctx.idempotency_key,
-      orderNotes, source, userId: req.context?.id,
+      tenantId,
+      branchId,
+      tableId,
+      sessionId: req.qrSession?.id || req.context?.id, // Use user ID as session for staff
+      items,
+      idempotencyKey: ctx.idempotency_key,
+      orderNotes,
+      source,
+      userId: req.context?.id,
+      customerName,
     });
 
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');

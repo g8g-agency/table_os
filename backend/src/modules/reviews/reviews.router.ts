@@ -11,3 +11,4 @@ reviewsRouter.post('/skip', reviewsController.skipReview);
 
 // Admin endpoint (requires staff auth)
 reviewsRouter.get('/', authenticate, requireMinRole(ROLES.MANAGER), reviewsController.listReviews);
+reviewsRouter.get('/analytics', authenticate, requireMinRole(ROLES.MANAGER), reviewsController.getReviewAnalytics);
