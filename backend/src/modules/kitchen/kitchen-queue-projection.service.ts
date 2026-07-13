@@ -27,8 +27,10 @@ export class KitchenQueueProjectionService {
           orders (
             order_number,
             order_notes,
+            updated_by,
             tables (
-              table_number
+              table_number,
+              assigned_staff_id
             )
           )
         `)
@@ -39,6 +41,34 @@ export class KitchenQueueProjectionService {
 
       if (ticketError) {
         throw new Error(`Failed to fetch kitchen orders: ${ticketError.message}`);
+      }
+
+      // 1.5 Fetch staff details to resolve assigned staff names
+      const staffIds = new Set<string>();
+      for (const ticket of tickets) {
+        if (ticket.orders?.updated_by) {
+          staffIds.add(ticket.orders.updated_by);
+        }
+        if (ticket.orders?.tables?.assigned_staff_id) {
+          staffIds.add(ticket.orders.tables.assigned_staff_id);
+        }
+      }
+
+      const staffMap = new Map<string, string>();
+      if (staffIds.size > 0) {
+        const { data: staffRows } = await supabaseAdmin
+          .from('staff')
+          .select('id, user_id, name')
+          .or(`id.in.(${Array.from(staffIds).join(',')}),user_id.in.(${Array.from(staffIds).join(',')})`);
+        
+        if (staffRows) {
+          for (const row of staffRows) {
+            staffMap.set(row.id, row.name);
+            if (row.user_id) {
+              staffMap.set(row.user_id, row.name);
+            }
+          }
+        }
       }
 
       const activeProjections: ActiveKitchenOrderProjection[] = [];
@@ -130,6 +160,9 @@ export class KitchenQueueProjectionService {
         const completedItems = items.reduce((acc, curr) => acc + curr.completedQuantity, 0);
         const prepProgressPercentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
+        const staffId = ticket.orders?.updated_by || ticket.orders?.tables?.assigned_staff_id;
+        const assignedStaffName = staffId ? staffMap.get(staffId) : null;
+
         const projection: ActiveKitchenOrderProjection = {
           ticketId: ticket.id,
           orderId: ticket.order_id,
@@ -144,6 +177,8 @@ export class KitchenQueueProjectionService {
           createdAt: ticket.created_at,
           updatedAt: ticket.updated_at,
           items,
+          assignedStaffId: staffId || null,
+          assignedStaffName: assignedStaffName || null,
           metrics: {
             totalItems,
             completedItems,

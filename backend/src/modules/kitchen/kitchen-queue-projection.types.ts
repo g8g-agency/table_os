@@ -32,6 +32,8 @@ export interface ActiveKitchenOrderProjection {
   createdAt: string;
   updatedAt: string;
   items: ActiveItemPrepProjection[];
+  assignedStaffId?: string | null;
+  assignedStaffName?: string | null;
   metrics: {
     totalItems: number;
     completedItems: number;
