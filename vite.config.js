@@ -2,8 +2,12 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 export default defineConfig({
+  build: {
+    sourcemap: true,
+  },
   server: {
     host: true,
     watch: {
@@ -42,6 +46,12 @@ export default defineConfig({
           }
         ]
       }
+    }),
+    sentryVitePlugin({
+      org: process.env.SENTRY_ORG || "orderlli",
+      project: "orderlli-customer",
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      telemetry: false,
     })
   ],
   optimizeDeps: {

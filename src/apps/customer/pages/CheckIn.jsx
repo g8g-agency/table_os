@@ -129,7 +129,6 @@ function LangToggle({ lang, setLang, dark }) {
   )
 }
 
-// ── SCREEN A — Returning Guest (Dark Luxury) ─────────────────────────────────
 function ReturningScreen({ guest, T, lang, setLang, guestCount, setGuestCount, onContinue, onReset }) {
   return (
     <motion.div
@@ -139,130 +138,139 @@ function ReturningScreen({ guest, T, lang, setLang, guestCount, setGuestCount, o
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.35 }}
       style={{
-        minHeight: '100vh', background: '#0F172A', display: 'flex',
-        flexDirection: 'column', padding: '32px 24px 40px',
+        minHeight: '100vh', background: '#E31E24', display: 'flex',
+        flexDirection: 'column',
         fontFamily: '"Plus Jakarta Sans", sans-serif', position: 'relative',
         maxWidth: 430, margin: '0 auto',
       }}
     >
-      <LangToggle lang={lang} setLang={setLang} dark />
+      <LangToggle lang={lang} setLang={setLang} dark={false} />
 
-      {/* Avatar */}
-      <div style={{ textAlign: 'center', marginTop: 48 }}>
+      {/* Top red section */}
+      <div style={{ padding: '56px 24px 48px', textAlign: 'center' }}>
+        {/* Avatar */}
         <div style={{
-          width: 80, height: 80, borderRadius: '50%', background: '#D97706',
+          width: 80, height: 80, borderRadius: '50%', background: 'white',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 28, fontWeight: 600, color: 'white',
+          fontSize: 28, fontWeight: 600, color: '#E31E24',
           margin: '0 auto',
-          boxShadow: '0 0 0 4px rgba(217,119,6,0.25)',
+          boxShadow: '0 0 0 4px rgba(255,255,255,0.25)',
         }}>
           {initials(guest.name)}
         </div>
-        <div style={{ color: '#4ADE80', fontSize: 12, marginTop: 8, fontWeight: 600 }}>
+        <div style={{ color: '#4ADE80', fontSize: 12, marginTop: 12, fontWeight: 600 }}>
           ● {T.verifiedGuest}
         </div>
-      </div>
 
-      {/* Welcome */}
-      <div style={{ textAlign: 'center', marginTop: 16 }}>
-        <div style={{ color: '#94A3B8', fontSize: 16 }}>{T.welcomeBackLabel}</div>
-        <div style={{ color: 'white', fontSize: 28, fontWeight: 600, lineHeight: 1.2 }}>{guest.name}</div>
-        <div style={{ color: '#94A3B8', fontSize: 13, marginTop: 4 }}>
-          {T.visitLabel(guest.visit_count || 1)}
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div style={{ height: 1, background: 'rgba(217,119,6,0.2)', margin: '24px 0' }} />
-
-      {/* Profile card */}
-      <div style={{
-        background: '#1E293B', borderRadius: 16, padding: 16,
-        border: '1px solid rgba(217,119,6,0.2)',
-      }}>
-        <div style={{ color: '#D97706', fontSize: 10, letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 12 }}>
-          {T.authenticatedProfile}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <span style={{ fontSize: 16 }}>👤</span>
-          <span style={{ color: 'white', fontSize: 15 }}>{guest.name}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <span style={{ fontSize: 16 }}>📱</span>
-          <span style={{ color: '#94A3B8', fontSize: 14 }}>{maskPhone(guest.phone)}</span>
-        </div>
-        <div style={{ color: '#4ADE80', fontSize: 10, letterSpacing: '1px', textTransform: 'uppercase' }}>
-          {T.verifiedContact}
-        </div>
-      </div>
-
-      {/* Guest count */}
-      <div style={{ marginTop: 24 }}>
-        <div style={{ color: '#94A3B8', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12, textAlign: 'center' }}>
-          {T.guests}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-          <button
-            onClick={() => setGuestCount(c => Math.max(1, c - 1))}
-            style={{
-              width: 44, height: 44, borderRadius: 12, background: 'transparent',
-              border: '1px solid #D97706', color: '#D97706', fontSize: 22,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >−</button>
-          <span style={{ color: 'white', fontSize: 32, fontWeight: 700, minWidth: 60, textAlign: 'center' }}>
-            {guestCount}
-          </span>
-          <button
-            onClick={() => setGuestCount(c => Math.min(8, c + 1))}
-            style={{
-              width: 44, height: 44, borderRadius: 12, background: '#D97706',
-              border: 'none', color: '#0F172A', fontSize: 22,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >+</button>
-        </div>
-        <GuestDots count={guestCount} filled="#D97706" empty="rgba(255,255,255,0.15)" />
-      </div>
-
-      {/* Chef's note */}
-      {(guest.visit_count || 0) > 1 && (
-        <div style={{
-          marginTop: 20, background: 'rgba(217,119,6,0.08)',
-          border: '1px solid rgba(217,119,6,0.2)', borderRadius: 12, padding: 12,
-          display: 'flex', gap: 10, alignItems: 'flex-start',
-        }}>
-          <span style={{ fontSize: 18 }}>🍽️</span>
-          <div>
-            <div style={{ color: '#D97706', fontSize: 12, fontWeight: 700 }}>{T.chefsNote}</div>
-            <div style={{ color: '#94A3B8', fontSize: 12, fontStyle: 'italic', marginTop: 2 }}>
-              {T.chefsNoteMsg}
-            </div>
+        {/* Welcome */}
+        <div style={{ marginTop: 16 }}>
+          <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }}>{T.welcomeBackLabel}</div>
+          <div style={{ color: 'white', fontSize: 28, fontWeight: 600, lineHeight: 1.2 }}>{guest.name}</div>
+          <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 4 }}>
+            {T.visitLabel(guest.visit_count || 1)}
           </div>
         </div>
-      )}
-
-      {/* Buttons */}
-      <div style={{ marginTop: 28 }}>
-        <button
-          onClick={() => onContinue(guest.name)}
-          style={{
-            width: '100%', background: '#D97706', border: 'none', borderRadius: 14,
-            padding: 15, color: '#0F172A', fontWeight: 700, fontSize: 15,
-            cursor: 'pointer', fontFamily: '"Plus Jakarta Sans", sans-serif',
-          }}
-        >
-          {T.continueAs(guest.name)}
-        </button>
-        <div style={{ textAlign: 'center', marginTop: 12 }}>
-          <button
-            onClick={onReset}
-            style={{ background: 'none', border: 'none', color: '#64748B', fontSize: 13, cursor: 'pointer' }}
-          >
-            {T.notYou}
-          </button>
-        </div>
       </div>
+
+      {/* White card */}
+      <motion.div
+        initial={{ y: 60, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        style={{
+          background: 'white', borderRadius: '32px 32px 0 0',
+          marginTop: -24, padding: '28px 24px 40px', flex: 1,
+        }}
+      >
+        {/* Profile card */}
+        <div style={{
+          background: '#F8FAFC', borderRadius: 16, padding: 16,
+          border: '1px solid #E5E7EB', marginBottom: 24,
+        }}>
+          <div style={{ color: '#E31E24', fontSize: 10, letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 12, fontWeight: 700 }}>
+            {T.authenticatedProfile}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 16 }}>👤</span>
+            <span style={{ color: '#1A1C1E', fontSize: 15, fontWeight: 500 }}>{guest.name}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 16 }}>📱</span>
+            <span style={{ color: '#6C757D', fontSize: 14 }}>{maskPhone(guest.phone)}</span>
+          </div>
+          <div style={{ color: '#16A34A', fontSize: 10, letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 700 }}>
+            {T.verifiedContact}
+          </div>
+        </div>
+
+        {/* Guest count */}
+        <div style={{ marginBottom: 24 }}>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12, textAlign: 'center' }}>
+            {T.guests}
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+            <button
+              onClick={() => setGuestCount(c => Math.max(1, c - 1))}
+              style={{
+                width: 44, height: 44, borderRadius: 12, background: 'transparent',
+                border: '1.5px solid #E31E24', color: '#E31E24', fontSize: 22,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >−</button>
+            <span style={{ color: '#E31E24', fontSize: 32, fontWeight: 700, minWidth: 60, textAlign: 'center' }}>
+              {guestCount}
+            </span>
+            <button
+              onClick={() => setGuestCount(c => Math.min(8, c + 1))}
+              style={{
+                width: 44, height: 44, borderRadius: 12, background: '#E31E24',
+                border: 'none', color: 'white', fontSize: 22,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >+</button>
+          </div>
+          <GuestDots count={guestCount} filled="#E31E24" empty="#E5E7EB" />
+        </div>
+
+        {/* Chef's note */}
+        {(guest.visit_count || 0) > 1 && (
+          <div style={{
+            marginBottom: 24, background: '#FEF2F2',
+            border: '1px solid #FCA5A5', borderRadius: 12, padding: 12,
+            display: 'flex', gap: 10, alignItems: 'flex-start',
+          }}>
+            <span style={{ fontSize: 18 }}>🍽️</span>
+            <div>
+              <div style={{ color: '#991B1B', fontSize: 12, fontWeight: 700 }}>{T.chefsNote}</div>
+              <div style={{ color: '#7F1D1D', fontSize: 12, fontStyle: 'italic', marginTop: 2 }}>
+                {T.chefsNoteMsg}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Buttons */}
+        <div>
+          <button
+            onClick={() => onContinue(guest.name)}
+            style={{
+              width: '100%', background: '#E31E24', border: 'none', borderRadius: 14,
+              padding: 15, color: 'white', fontWeight: 600, fontSize: 15,
+              cursor: 'pointer', fontFamily: '"Plus Jakarta Sans", sans-serif',
+            }}
+          >
+            {T.continueAs(guest.name)}
+          </button>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <button
+              onClick={onReset}
+              style={{ background: 'none', border: 'none', color: '#6C757D', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              {T.notYou}
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </motion.div>
   )
 }

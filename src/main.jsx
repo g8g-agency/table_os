@@ -2,9 +2,28 @@
 import './polyfill.js' // MUST BE FIRST
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useNavigationType, createRoutesFromChildren, matchRoutes } from 'react-router-dom'
 import './index.css'
 
+import * as Sentry from "@sentry/react";
+
+Sentry.init({
+  dsn: import.meta.env.VITE_SENTRY_FRONTEND_DSN,
+  release: import.meta.env.VITE_APP_VERSION,
+  environment: import.meta.env.MODE,
+  integrations: [
+    Sentry.reactRouterV6BrowserTracingIntegration({
+      useEffect,
+      useLocation,
+      useNavigationType,
+      createRoutesFromChildren,
+      matchRoutes,
+    }),
+  ],
+  tracesSampleRate: import.meta.env.MODE === 'production' ? 0.1 : 1.0,
+  replaysSessionSampleRate: 0,
+  replaysOnErrorSampleRate: 0,
+});
 
 // Core
 import { supabase } from './lib/supabase.js'
@@ -62,6 +81,17 @@ function AuthGate({ children }) {
   const resolveContext = useAuthStore(state => state.resolveContext)
   const logout = useAuthStore(state => state.logout)
   const [healthStatus, setHealthStatus] = React.useState('checking') // checking, ok, degraded
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/staff')) {
+      Sentry.setTag("surface", "staff");
+    } else if (location.pathname.startsWith('/runtime')) {
+      Sentry.setTag("surface", "observability");
+    } else {
+      Sentry.setTag("surface", "customer");
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -152,8 +182,9 @@ function CheckInRoute() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
+    <Sentry.ErrorBoundary fallback={<div className="h-screen w-screen flex items-center justify-center bg-[#0a0a0a] text-white p-6"><div className="text-center"><h1 className="text-2xl font-bold text-red-500 mb-4">Something went wrong</h1><p className="text-gray-400 text-sm">We are experiencing technical difficulties. Please refresh the page.</p><button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">Refresh Page</button></div></div>}>
+      <BrowserRouter>
+        <Routes>
         {/* KDS App Surface (Independent from Customer AuthGate) */}
         <Route path="/kds/*" element={<KdsGate />} />
 
@@ -210,6 +241,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         } />
       </Routes>
     </BrowserRouter>
+    </Sentry.ErrorBoundary>
   </React.StrictMode>
 )
-
