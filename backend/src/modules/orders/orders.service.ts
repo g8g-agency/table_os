@@ -83,10 +83,10 @@ export async function createDirectOrder(params: {
 }
 
 const VALID_TRANSITIONS: Record<ordersRepo.OrderStatus, ordersRepo.OrderStatus[]> = {
-  pending: ['accepted', 'cancelled'],
-  accepted: ['preparing', 'cancelled'],
-  preparing: ['ready', 'cancelled'],
-  ready: ['delivered', 'cancelled'],
+  pending: ['accepted', 'cancelled', 'completed'],
+  accepted: ['preparing', 'cancelled', 'completed'],
+  preparing: ['ready', 'cancelled', 'completed'],
+  ready: ['delivered', 'cancelled', 'completed'],
   delivered: ['completed', 'cancelled'],
   completed: [],
   cancelled: [],
@@ -444,18 +444,20 @@ export async function transitionOrderStatus(params: {
   }
   
   // 4.6. Deactivate Guest Session immediately upon payment completion to vacant the table
-  if (targetStatus === 'completed' && order.session_id) {
+  if (targetStatus === 'completed') {
     try {
-      await supabaseAdmin
-        .from('guest_sessions')
-        .update({
-          is_active: false,
-          ended_at: new Date().toISOString(),
-          resolved_at: new Date().toISOString(),
-          closed_reason: 'completed',
-        })
-        .eq('id', order.session_id)
-        .eq('tenant_id', tenantId);
+      if (order.session_id) {
+        await supabaseAdmin
+          .from('guest_sessions')
+          .update({
+            is_active: false,
+            ended_at: new Date().toISOString(),
+            resolved_at: new Date().toISOString(),
+            closed_reason: 'completed',
+          })
+          .eq('id', order.session_id)
+          .eq('tenant_id', tenantId);
+      }
         
       // Rebuild projection so table state updates to FREE/Vacant immediately
       await rebuildTableProjection(supabaseAdmin, tenantId, order.table_id);

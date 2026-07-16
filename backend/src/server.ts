@@ -8,6 +8,7 @@ import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 
 import { env } from './config/env'; // Must be first — validates env before anything else
+import { Sentry } from './config/sentry';
 import { createApp } from './app';
 import { logger } from './shared/utils/logger';
 import { GracefulShutdownService } from './modules/infrastructure/graceful-shutdown.service';
@@ -99,6 +100,12 @@ GracefulShutdownService.registerHook('WebSocket Transport', 60, async () => {
   logger.info('WebSocket connections cleanly terminated');
 });
 
+// Ensure Sentry events are flushed to the network before exiting
+GracefulShutdownService.registerHook('Sentry Flush', 10, async () => {
+  await Sentry.close(2000);
+  logger.info('Sentry queue flushed and closed');
+});
+
 process.on('unhandledRejection', (reason) => {
   // Operational errors (AppError with isOperational=true) are expected domain
   // errors that slipped through without a try/catch. Log them but do NOT crash.
@@ -107,11 +114,13 @@ process.on('unhandledRejection', (reason) => {
     return;
   }
   // Truly unexpected errors (bugs, type errors, etc.) should trigger shutdown.
+  Sentry.captureException(reason);
   logger.error({ reason }, 'Unhandled promise rejection — initiating graceful shutdown');
   GracefulShutdownService.initiateShutdown('unhandledRejection');
 });
 
 process.on('uncaughtException', (err) => {
+  Sentry.captureException(err);
   logger.error({ err }, 'Uncaught exception — process will exit');
   GracefulShutdownService.initiateShutdown('uncaughtException');
 });

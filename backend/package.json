@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@sentry/node": "^10.66.0",
     "@supabase/supabase-js": "^2.49.4",
     "@types/pg": "^8.20.0",
     "compression": "^1.8.1",
