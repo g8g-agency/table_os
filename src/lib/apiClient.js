@@ -21,6 +21,11 @@ export async function fetchWithRuntime(endpoint, options = {}) {
   
   const headers = new Headers(options.headers || {});
   
+  if (!headers.has('X-Request-Id')) {
+    headers.set('X-Request-Id', crypto.randomUUID());
+  }
+  options.headers = headers; // Store back in options for frontend Sentry scoping
+
   // Strict Read-Only Enforcement
   const method = (options.method || 'GET').toUpperCase();
   if (method !== 'GET' && method !== 'HEAD') {
@@ -59,6 +64,7 @@ export async function fetchWithRuntime(endpoint, options = {}) {
 
     return response;
   } catch (error) {
+    error.requestId = headers.get('X-Request-Id');
     console.error(`[RuntimeApiClient] Network failure fetching ${endpoint}`, error);
     useConnectivityStore.getState().recordApiTimeout();
     throw error;
@@ -71,6 +77,11 @@ export async function fetchWithRuntime(endpoint, options = {}) {
  */
 export async function fetchPublicApi(endpoint, options = {}) {
   const headers = new Headers(options.headers || {});
+
+  if (!headers.has('X-Request-Id')) {
+    headers.set('X-Request-Id', crypto.randomUUID());
+  }
+  options.headers = headers;
 
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
@@ -99,6 +110,7 @@ export async function fetchPublicApi(endpoint, options = {}) {
     useConnectivityStore.getState().recordApiSuccess();
     return response;
   } catch (error) {
+    error.requestId = headers.get('X-Request-Id');
     console.error(`[PublicApiClient] Network failure fetching ${endpoint}`, error);
     useConnectivityStore.getState().recordApiTimeout();
     throw error;

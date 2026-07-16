@@ -69,6 +69,7 @@ export const errorMiddleware = (
         url: req.originalUrl,
         ip: req.ip,
         user_agent: req.headers['user-agent'],
+        request_id: requestId,
       });
 
       if (tenantId || branchId) {

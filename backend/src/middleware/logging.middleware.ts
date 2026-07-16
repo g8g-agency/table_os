@@ -1,11 +1,16 @@
 import { pinoHttp } from 'pino-http';
 import { logger } from '../shared/utils/logger';
 
+import { randomUUID } from 'crypto';
+
 /**
  * HTTP request logging middleware using pino-http.
  */
 export const loggingMiddleware = pinoHttp({
   logger,
+  genReqId: (req) => {
+    return req.headers['x-request-id'] || req.id || randomUUID();
+  },
   // Custom response logging
   customSuccessMessage: (req, res) => {
     return `${req.method} ${req.url} ${res.statusCode}`;
