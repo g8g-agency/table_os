@@ -502,17 +502,41 @@ export async function transitionOrderStatus(params: {
       };
     } else {
       alertType = targetStatus === 'ready' ? 'ORDER_READY_FOR_PICKUP' : 'ORDER_PREPARING';
+
+      // For ORDER_READY, resolve who originally accepted this order so the
+      // Staff App can filter the notification to just that waiter.
+      let acceptedByStaffId: string | null = assignedStaffId;
+      if (targetStatus === 'ready') {
+        try {
+          const { data: historyRow } = await supabaseAdmin
+            .from('order_state_history')
+            .select('changed_by')
+            .eq('order_id', orderId)
+            .eq('to_status', 'accepted')
+            .order('occurred_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (historyRow?.changed_by) {
+            acceptedByStaffId = historyRow.changed_by;
+          }
+        } catch (err) {
+          logger.warn({ err, orderId }, '[OrderAlert] Could not resolve accepting staff for ORDER_READY_FOR_PICKUP');
+        }
+      }
+
       alertPayload = {
         orderId: order.id,
         orderNumber: order.order_number,
         tableNumber,
         assignedStaffId,
+        acceptedByStaffId,   // ← the waiter who accepted — used to target the notification
         assignedStaffName: staffName,
         [targetStatus === 'ready' ? 'readyAt' : 'preparingAt']: new Date().toISOString(),
         tenantId,
         branchId: order.branch_id,
       };
     }
+
 
     logger.info({
       stage: 'dispatch_order_alert',
