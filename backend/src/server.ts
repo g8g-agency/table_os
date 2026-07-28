@@ -65,6 +65,17 @@ async function startServer() {
         console.log(`📡 Network (LAN): http://${ip}:${PORT}`);
       });
     });
+
+    // ── Auto-complete orders ready for > 5 minutes ──────────────────────────
+    const autoCompleteTimer = setInterval(() => {
+      import('./modules/kitchen/kitchen.service')
+        .then((m) => m.autoCompleteOverdueReadyOrders())
+        .catch((err) => logger.warn({ err }, '[Auto-Complete] Failed running job'));
+    }, 15000);
+
+    GracefulShutdownService.registerHook('Kitchen Auto-Complete Timer', 40, async () => {
+      clearInterval(autoCompleteTimer);
+    });
   });
 
   // ── WebSocket Upgrade Hook ──────────────────────────────────────────────────────────

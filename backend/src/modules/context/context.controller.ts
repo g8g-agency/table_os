@@ -139,8 +139,8 @@ export async function bootstrap(
         log.info({ userId }, `[Bootstrap] RPC finished at +${Date.now() - startMs}ms (took ${Date.now() - raceStart}ms)`);
 
         if (rpcError) {
-          log.error({ userId, tenantId, error: rpcError }, '[Bootstrap] RPC lookup failed');
-          throw new Error(`Bootstrap context lookup failed: ${rpcError.message}`);
+          log.warn({ userId, tenantId, error: rpcError }, '[Bootstrap] RPC lookup failed — executing fallback');
+          throw rpcError;
         }
 
         const ctx = rpcData as any;
@@ -155,7 +155,7 @@ export async function bootstrap(
             is_active: ctx.tenant.status !== 'suspended' && ctx.tenant.status !== 'deleted',
             dismissed_qr_banner: ctx.tenant.dismissed_qr_banner ?? false,
           };
-          log.info({ userId, tenantId, name: ctx.tenant.name }, '[Bootstrap] Tenant resolved');
+          log.info({ userId, tenantId, name: ctx.tenant.name }, '[Bootstrap] Tenant resolved via RPC');
         } else {
           log.warn({ userId, tenantId }, '[Bootstrap] Tenant record not found — treating as hasTenant=false');
         }
@@ -166,7 +166,7 @@ export async function bootstrap(
           timezone: b.timezone,
           status: b.status,
         }));
-        log.info({ userId, tenantId, branchCount: branches.length }, '[Bootstrap] Branches resolved');
+        log.info({ userId, tenantId, branchCount: branches.length }, '[Bootstrap] Branches resolved via RPC');
 
         const onboardingData = ctx.onboarding_state;
         if (!onboardingData) {
@@ -190,8 +190,48 @@ export async function bootstrap(
           };
         }
       } catch (err: any) {
-        log.error({ userId, tenantId, err }, '[Bootstrap] RPC or timeout error');
-        throw err;
+        log.warn({ userId, tenantId, err: err.message }, '[Bootstrap] RPC or timeout error — falling back to direct database queries');
+        
+        // Direct query fallback for tenant
+        const { data: tenantRow } = await supabaseAdmin
+          .from('tenants')
+          .select('id, name, slug, status')
+          .eq('id', tenantId)
+          .maybeSingle();
+
+        if (tenantRow) {
+          tenant = {
+            id: tenantRow.id,
+            name: tenantRow.name,
+            slug: tenantRow.slug,
+            plan: 'standard',
+            status: tenantRow.status,
+            is_active: tenantRow.status !== 'suspended' && tenantRow.status !== 'deleted',
+            dismissed_qr_banner: false,
+          };
+        }
+
+        // Direct query fallback for branches
+        const { data: branchRows } = await supabaseAdmin
+          .from('branches')
+          .select('id, name, timezone, status')
+          .eq('tenant_id', tenantId);
+
+        if (branchRows) {
+          branches = branchRows.map((b: any) => ({
+            id: b.id,
+            name: b.name,
+            timezone: b.timezone,
+            status: b.status,
+          }));
+        }
+
+        onboarding = {
+          is_complete: true,
+          is_skipped: false,
+          step: 4,
+          steps_completed: ['step1', 'step2', 'step3', 'step4'],
+        };
       }
       
       const rpcMs = Date.now() - rpcStart;

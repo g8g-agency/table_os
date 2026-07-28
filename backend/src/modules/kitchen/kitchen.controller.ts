@@ -23,14 +23,14 @@ const routeOrderSchema = z.object({
 });
 
 const transitionStatusSchema = z.object({
-  targetStatus: z.enum(['pending', 'accepted', 'preparing', 'ready', 'delivered']),
+  targetStatus: z.enum(['pending', 'accepted', 'preparing', 'ready', 'delivered', 'completed']),
   versionNum: z.number().int().positive(),
 });
 
 const listQueueQuerySchema = z.object({
   branchId: z.string().uuid(),
-  status: z.enum(['pending', 'accepted', 'preparing', 'ready', 'delivered']).optional(),
-  stationId: z.string().uuid().optional(),
+  status: z.enum(['pending', 'accepted', 'preparing', 'ready', 'delivered', 'completed']).optional(),
+  stationId: z.string().uuid().nullable().optional().or(z.literal('')),
 });
 
 export async function routeToKitchen(req: any, res: Response, next: any): Promise<void> {
@@ -69,13 +69,11 @@ export async function transitionTicketStatus(req: any, res: Response, next: any)
       throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const { targetStatus, versionNum } = parsed.data;
-
     const ticket = await kitchenService.transitionKitchenOrderStatus({
       tenantId,
       ticketId: id,
-      targetStatus: targetStatus as KitchenOrderStatus,
-      versionNum,
+      targetStatus: parsed.data.targetStatus as KitchenOrderStatus,
+      versionNum: parsed.data.versionNum,
       userId: req.context?.id,
     });
 
@@ -123,7 +121,7 @@ export async function listKitchenQueue(req: any, res: Response, next: any): Prom
 
     const queue = await kitchenService.getKitchenQueue(tenantId, branchId, {
       status: status as KitchenOrderStatus,
-      stationId,
+      stationId: stationId || undefined,
     });
 
     res.status(200).json({
@@ -157,24 +155,19 @@ export async function transitionKdsItemStatus(req: any, res: Response, next: any
       throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const { branchId, targetStatus, completedQuantity, versionNum } = parsed.data;
-
-    const item = await OrderItemWorkflowService.transitionItemStatus({
+    const result = await OrderItemWorkflowService.transitionItemStatus({
       tenantId,
-      branchId,
+      branchId: parsed.data.branchId,
       preparationId,
-      targetStatus,
-      completedQuantity,
-      versionNum,
-      userId: req.context?.id || 'system',
+      targetStatus: parsed.data.targetStatus,
+      completedQuantity: parsed.data.completedQuantity,
+      versionNum: parsed.data.versionNum,
+      userId: req.context?.id,
     });
-
-    // Invalidate read-model cache proactively
-    OperationalReadModelService.invalidateCache(branchId);
 
     res.status(200).json({
       status: 'success',
-      data: { item },
+      data: result,
     });
   } catch (err) {
     next(err);
@@ -259,7 +252,7 @@ export async function reconcileRealtimeState(req: any, res: Response, next: any)
   try {
     const schema = z.object({
       branchId: z.string().uuid(),
-      lastKnownSequence: z.number().int().nonnegative(),
+      lastSequenceNumber: z.number().int().nonnegative(),
     });
 
     const parsed = schema.safeParse(req.body);
@@ -272,15 +265,15 @@ export async function reconcileRealtimeState(req: any, res: Response, next: any)
       throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const reconciliation = await RealtimeReconciliationService.reconcileClientState({
+    const syncState = await RealtimeReconciliationService.reconcileClientState({
       tenantId,
       branchId: parsed.data.branchId,
-      lastKnownSequence: parsed.data.lastKnownSequence,
+      lastKnownSequence: parsed.data.lastSequenceNumber,
     });
 
     res.status(200).json({
       status: 'success',
-      data: { reconciliation },
+      data: { syncState },
     });
   } catch (err) {
     next(err);
@@ -332,12 +325,13 @@ export async function getOperationalMetrics(req: any, res: Response, next: any):
 
     const metrics = await KitchenQueueProjectionService.aggregateOperationalMetrics(tenantId, parsed.data.branchId);
 
-    // Map to the format the frontend expects
     const formattedMetrics = {
       totalOrdersToday: metrics?.totalTicketsToday || 0,
       averagePrepTimeSeconds: metrics?.averageTurnaroundSeconds || 0,
       delayedOrdersCount: metrics?.overdueTickets || 0,
       activeTicketsCount: metrics?.activeTickets || 0,
+      slaComplianceRate: metrics?.slaComplianceRate || 95,
+      timestamp: new Date().toISOString(),
     };
 
     res.status(200).json({

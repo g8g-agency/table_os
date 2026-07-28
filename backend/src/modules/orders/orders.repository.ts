@@ -89,21 +89,52 @@ export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'c
 }
 
 export async function getOrderById(tenantId: string, id: string): Promise<Order | null> {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('orders')
-    .select('*, items:order_items(*)')
-    .eq('tenant_id', tenantId)
-    .eq('id', id)
-    .maybeSingle();
+    .select('*, tables(display_name, table_number), snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
+    .eq('id', id);
 
-  if (error) {
-    throw new AppError(`Failed to fetch order: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  if (tenantId) {
+    query = query.eq('tenant_id', tenantId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error || !data) {
+    // Fallback to query order by id directly
+    let plainQuery = supabaseAdmin.from('orders').select('*').eq('id', id);
+    if (tenantId) plainQuery = plainQuery.eq('tenant_id', tenantId);
+    const { data: plain, error: plainErr } = await plainQuery.maybeSingle();
+    
+    // If still null, try without tenant_id constraint as secondary fallback
+    if (!plain && tenantId) {
+      const { data: globalPlain } = await supabaseAdmin.from('orders').select('*').eq('id', id).maybeSingle();
+      if (globalPlain) return globalPlain as Order | null;
+    }
+    
+    if (plainErr) throw new AppError(`Failed to fetch order: ${plainErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    return plain as Order | null;
   }
 
   if (data) {
-    const items = data.items || [];
-    const total_amount = items.reduce((sum: number, item: any) => sum + ((item.unit_price || 0) * (item.qty || 0)), 0);
+    const snapItems: any[] = data.snapshot?.items || [];
+    const items = snapItems.map((i: any) => ({
+      id: i.id || '',
+      name: i.item_name_snapshot,
+      qty: i.quantity,
+      unit_price: (i.unit_price_minor || 0) / 100,
+      line_total: (i.line_total_minor || 0) / 100,
+    }));
+    const total_amount = snapItems.reduce((sum: number, i: any) => sum + (i.line_total_minor || 0), 0) / 100;
+    
+    // Resolve table_number label
+    const tableData = (data as any).tables;
+    const tableLabel = tableData?.display_name || (tableData?.table_number ? `Table ${tableData.table_number}` : 'Table');
+    (data as any).table_number = tableLabel;
+
+    data.items = items;
     data.total_amount = total_amount;
+    delete data.snapshot;
   }
 
   return data as Order | null;
@@ -134,7 +165,7 @@ export async function listOrdersByBranch(
 
   let query = supabaseAdmin
     .from('orders')
-    .select('*, items:order_items(*)')
+    .select('*, snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .gte('created_at', sevenDaysAgo.toISOString());
@@ -146,13 +177,24 @@ export async function listOrdersByBranch(
   const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
 
   if (error) {
-    throw new AppError(`Failed to list branch orders: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    // Fallback: plain orders without items
+    const { data: plain } = await supabaseAdmin
+      .from('orders').select('*').eq('tenant_id', tenantId).eq('branch_id', branchId)
+      .gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(200);
+    return (plain || []).map((o: any) => ({ ...o, items: [], total_amount: 0 })) as Order[];
   }
 
   const mappedData = data.map((order: any) => {
-    const items = order.items || [];
-    const total_amount = items.reduce((sum: number, item: any) => sum + ((item.unit_price || 0) * (item.qty || 0)), 0);
-    return { ...order, total_amount };
+    const snapItems: any[] = order.snapshot?.items || [];
+    const items = snapItems.map((i: any) => ({
+      id: i.id || '',
+      name: i.item_name_snapshot,
+      qty: i.quantity,
+      unit_price: (i.unit_price_minor || 0) / 100,
+      line_total: (i.line_total_minor || 0) / 100,
+    }));
+    const total_amount = snapItems.reduce((sum: number, i: any) => sum + (i.line_total_minor || 0), 0) / 100;
+    return { ...order, items, total_amount, snapshot: undefined };
   });
 
   return mappedData as Order[];

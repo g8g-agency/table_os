@@ -86,7 +86,7 @@ const VALID_TRANSITIONS: Record<ordersRepo.OrderStatus, ordersRepo.OrderStatus[]
   pending: ['accepted', 'cancelled'],
   accepted: ['preparing', 'cancelled'],
   preparing: ['ready', 'cancelled'],
-  ready: ['delivered', 'cancelled'],
+  ready: ['delivered', 'completed', 'cancelled'],
   delivered: ['completed', 'cancelled'],
   completed: [],
   cancelled: [],
@@ -215,17 +215,6 @@ export async function createOrderFromCart(params: {
       idempotencyKey: idempotencyKey || null,
     });
 
-    // WORKAROUND: The DB function orchestrate_checkout_v1 still checks expires_at > NOW() (old migration).
-    // The session has already been validated as active by requireQrSession middleware.
-    // Extend expires_at to 24h from now to ensure the DB check passes until the migration is re-run.
-    if (params.sessionId) {
-      await supabaseAdmin
-        .from('guest_sessions')
-        .update({ expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() })
-        .eq('id', params.sessionId)
-        .eq('is_active', true);
-    }
-
     const { data, error } = await supabaseAdmin.rpc('orchestrate_checkout_v1', {
       p_tenant_id: tenantId,
       p_cart_id: cartId,
@@ -235,21 +224,14 @@ export async function createOrderFromCart(params: {
       p_invoice_id: invoiceId,
       p_invoice_number: invoiceNumber,
       p_table_id: params.tableId,
-      p_session_id: params.sessionId || cart!.session_id || null,
+      p_session_id: params.sessionId || cart.session_id || null,
       p_source: params.source,
       p_order_notes: params.orderNotes || null,
       p_user_id: params.userId || null,
       p_idempotency_key: idempotencyKey || null,
     });
 
-    logger.info({
-      stage: 'after_checkout_rpc',
-      tenantId,
-      cartId,
-      error: error ? error!.message : null,
-      dataAvailable: !!data,
-    });
-
+    let responseData = data;
     if (error) {
       if (error!.message.includes('Cart is already checked out or locked')) {
         throw new AppError(
@@ -258,7 +240,55 @@ export async function createOrderFromCart(params: {
           ErrorCode.CART_ALREADY_CHECKED_OUT
         );
       }
-      throw new AppError(`Atomic transaction failed: ${error!.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+
+      if (error!.message.includes('resolved_at') || error!.message.includes('column')) {
+        logger.warn({ error: error.message }, '[OrderService] DB RPC failed on schema column check, executing direct atomic checkout fallback');
+        
+        // 1. Lock cart
+        await supabaseAdmin.from('carts').update({
+          status: 'submitted',
+          submitted_at: new Date().toISOString()
+        }).eq('id', cartId).eq('tenant_id', tenantId);
+
+        // 2. Insert order
+        const { error: orderInsError } = await supabaseAdmin.from('orders').insert({
+          id: orderId,
+          tenant_id: tenantId,
+          branch_id: cart.branch_id,
+          table_id: params.tableId,
+          session_id: params.sessionId || cart.session_id || null,
+          cart_id: cartId,
+          order_snapshot_id: snapshotId,
+          order_number: orderNumber,
+          status: 'pending',
+          source: params.source,
+          idempotency_key: idempotencyKey || null,
+          order_notes: params.orderNotes || null,
+          customer_name: customerName || null,
+          created_by: params.userId || null,
+        });
+
+        if (orderInsError) {
+          throw new AppError(`Fallback order creation failed: ${orderInsError.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+        }
+
+        // 3. Insert invoice
+        await supabaseAdmin.from('invoices').insert({
+          id: invoiceId,
+          tenant_id: tenantId,
+          branch_id: cart.branch_id,
+          order_id: orderId,
+          invoice_number: invoiceNumber,
+          status: 'unpaid',
+          subtotal_minor: (cart as any).subtotal_minor || 0,
+          tax_minor: (cart as any).tax_minor || 0,
+          total_minor: (cart as any).total_minor || 0,
+        });
+
+        responseData = { order_id: orderId, invoice_id: invoiceId, status: 'pending' };
+      } else {
+        throw new AppError(`Atomic transaction failed: ${error!.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      }
     }
 
     // Explicitly update customer_name on orders since the RPC might not support it yet
@@ -266,7 +296,7 @@ export async function createOrderFromCart(params: {
       await supabaseAdmin.from('orders').update({ customer_name: customerName }).eq('id', orderId).eq('tenant_id', tenantId);
     }
 
-    const response = data as { order_id: string; invoice_id: string; status: string };
+    const response = responseData as { order_id: string; invoice_id: string; status: string };
     
     // 7. Route to Kitchen (Compensating Transaction Saga)
     try {
@@ -342,13 +372,17 @@ async function _dispatchOrderAssignedEvent(
     // Prefer display_name, fall back to table_number
     const tableNumber = tableData?.display_name ?? tableData?.table_number ?? 'N/A';
 
-    // Use order.items (order_items rows) for accurate item data.
-    // Columns: name, qty, unit_price (in minor units).
+    // Use order.items or cartItems fallback for accurate item data and total amount
     const orderItems: any[] = (order as any).items ?? [];
-    const totalAmountMinor = orderItems.reduce(
-      (sum: number, item: any) => sum + (item.unit_price ?? 0) * (item.qty ?? 1),
-      0
-    );
+    const itemsToUse = (orderItems.length > 0) ? orderItems : cartItems;
+
+    const totalAmountMinor = (order as any).total_amount 
+      ? Math.round((order as any).total_amount * 100)
+      : itemsToUse.reduce((sum: number, item: any) => {
+          const price = item.unit_price ?? ((item.unit_price_minor ?? 0) / 100);
+          const qty = item.qty ?? item.quantity ?? 1;
+          return sum + Math.round(price * qty * 100);
+        }, 0);
 
     const alertPayload = {
       orderId: order.id,
@@ -357,12 +391,12 @@ async function _dispatchOrderAssignedEvent(
       tableNumber,
       tenantId,
       assignedStaffId,       // null = broadcast to all (manager fallback)
-      itemCount: orderItems.length || cartItems.length,
+      itemCount: itemsToUse.length,
       totalAmountMinor,
       orderTime: order.created_at,
       versionNum: order.version_num,   // ← OCC version for accept action
-      items: orderItems.map((i: any) => ({
-        name: i.name ?? i.item_name_snapshot ?? 'Item',
+      items: itemsToUse.map((i: any) => ({
+        name: i.name ?? i.item_name_snapshot ?? i.product_name ?? 'Item',
         quantity: i.qty ?? i.quantity ?? 1,
       })),
     };
@@ -438,7 +472,7 @@ export async function transitionOrderStatus(params: {
   if (targetStatus === 'cancelled') {
     // We execute this synchronously (or concurrently) to ensure the KDS state is updated
     // For pilot stabilization, we direct-invoke the service. Event-driven refactor scheduled post-pilot.
-    await kitchenService.handleParentOrderCancelled(tenantId, orderId, userId).catch(err => {
+    await kitchenService.handleParentOrderCancelled(tenantId, orderId, userId).catch((err: any) => {
       logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to cascade cancellation to kitchen ticket');
     });
   }
@@ -518,6 +552,14 @@ export async function transitionOrderStatus(params: {
     let alertType = '';
     let alertPayload: any = {};
 
+    // Fetch order snapshot/items for payload enrichment
+    const snapshotOrder: any = await ordersRepo.getOrderById(tenantId, orderId);
+    const alertItems = snapshotOrder?.items?.map((i: any) => ({
+      name: i.name,
+      quantity: i.qty,
+    })) || [];
+    const totalAmountMinor = Math.round((snapshotOrder?.total_amount || 0) * 100);
+
     if (targetStatus === 'accepted') {
       alertType = 'ORDER_ACCEPTED';
       alertPayload = {
@@ -529,6 +571,9 @@ export async function transitionOrderStatus(params: {
         acceptedAt: new Date().toISOString(),
         tenantId,
         branchId: order.branch_id,
+        itemCount: alertItems.length,
+        totalAmountMinor,
+        items: alertItems,
       };
     } else {
       alertType = targetStatus === 'ready' ? 'ORDER_READY_FOR_PICKUP' : 'ORDER_PREPARING';
@@ -564,6 +609,9 @@ export async function transitionOrderStatus(params: {
         [targetStatus === 'ready' ? 'readyAt' : 'preparingAt']: new Date().toISOString(),
         tenantId,
         branchId: order.branch_id,
+        itemCount: alertItems.length,
+        totalAmountMinor,
+        items: alertItems,
       };
     }
 
@@ -621,6 +669,20 @@ export async function acceptOrder(params: {
     userId: staffId,
     reason: 'Order accepted by assigned staff.',
   });
+
+  // Assign the accepting waiter/staff to the table
+  try {
+    await supabaseAdmin
+      .from('tables')
+      .update({ assigned_staff_id: staffId })
+      .eq('id', updatedOrder.table_id)
+      .eq('tenant_id', tenantId);
+
+    // Rebuild projection so floor card updates immediately
+    await rebuildTableProjection(supabaseAdmin, tenantId, updatedOrder.table_id);
+  } catch (err: any) {
+    console.error('[OrderAlert] Failed to assign staff to table / rebuild table projection:', err);
+  }
 
   let staffName = 'Unknown Staff';
   try {

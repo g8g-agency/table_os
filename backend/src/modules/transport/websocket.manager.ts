@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { logger } from '../../shared/utils/logger';
 import { RuntimeAuthService } from '../auth/services/runtime-auth.service';
 import { validateSessionToken } from '../tables/qr/qr.service';
+import { validateAccessToken } from '../auth/services/auth.service';
 import { logTransportAudit } from './transport-audit.repository';
 import type { ConnectionIdentity, EventEnvelope } from './transport.contracts';
 
@@ -43,6 +44,11 @@ export class WebSocketManager {
   /**
    * Main entry point from the HTTP server upgrade hook.
    * Handles strict authentication and transport identity generation.
+   *
+   * Auth chain (same as HTTP auth middleware):
+   *   Tier 1: Runtime JWT   — Staff after clock-in
+   *   Tier 2: Supabase JWT  — Staff before full exchange / Admin app
+   *   Tier 3: QR Session    — Customer ordering via QR code
    */
   public async handleUpgrade(req: IncomingMessage, socket: any, head: Buffer): Promise<void> {
     try {
@@ -59,7 +65,7 @@ export class WebSocketManager {
       let identity: Partial<ConnectionIdentity> = {};
 
       try {
-        // Try Runtime JWT first (Staff)
+        // Tier 1: Runtime JWT (Staff after successful clock-in exchange)
         const payload = RuntimeAuthService.verifyRuntimeSession(token);
         identity = {
           tenant_id: payload.tenant_id,
@@ -67,14 +73,33 @@ export class WebSocketManager {
           session_id: payload.session_id,
           user_id: payload.sub,
         };
-      } catch (err) {
-        // Fallback to QR Session (Customer)
-        const qrSession = await validateSessionToken(token);
-        identity = {
-          tenant_id: qrSession.tenant_id,
-          branch_id: qrSession.branch_id,
-          session_id: qrSession.id,
-        };
+      } catch (_runtimeErr) {
+        try {
+          // Tier 2: Supabase platform JWT (Staff when runtime exchange not yet done, or Admin app)
+          const validation = await validateAccessToken(token);
+          // branchId may come from JWT app_metadata or from the URL query param (?branchId=xxx)
+          const urlBranchId = req.url
+            ? new URL(req.url, `http://${req.headers.host}`).searchParams.get('branchId') ?? undefined
+            : undefined;
+          const resolvedBranchId = validation.branch_ids?.[0] || urlBranchId;
+          if (validation.valid && validation.tenant_id && resolvedBranchId) {
+            identity = {
+              tenant_id: validation.tenant_id,
+              branch_id: resolvedBranchId,
+              user_id: validation.user_id ?? undefined,
+            };
+          } else {
+            throw new Error('Supabase token missing tenant/branch context');
+          }
+        } catch (_supabaseErr) {
+          // Tier 3: QR Session token (Customer ordering via QR)
+          const qrSession = await validateSessionToken(token);
+          identity = {
+            tenant_id: qrSession.tenant_id,
+            branch_id: qrSession.branch_id,
+            session_id: qrSession.id,
+          };
+        }
       }
 
       // 2. Generate Transport Identity

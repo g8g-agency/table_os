@@ -34,16 +34,6 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
   
   const ctx = req.mutationContext!;
   try {
-    // Debug logging
-    console.log('[Kitchen Mutations] Received mutation:', {
-      mutationId: ctx.mutation_id,
-      body: req.body,
-      headers: {
-        tenantId: req.headers['x-tenant-id'],
-        contextTenantId: req.context?.tenantId
-      }
-    });
-
     const tenantId = req.headers['x-tenant-id'] as string || req.context?.tenantId;
     if (!tenantId) {
       throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
@@ -51,7 +41,6 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
 
     const { type, orderId } = req.body;
     if (!orderId) {
-      console.error('[Kitchen Mutations] Missing orderId in payload:', req.body);
       throw new AppError('orderId is required in mutation payload', 400, ErrorCode.VALIDATION_ERROR);
     }
 
@@ -71,7 +60,6 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
        if (!ticketDetails) throw new AppError('Ticket not found', 404, ErrorCode.NOT_FOUND);
 
        if (ticketDetails.status === 'cancelled') {
-         // Idempotent retry: ticket already cancelled
          void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
          return formatMutationResponse(res, 200, { ticket: ticketDetails }, ctx);
        }
@@ -105,9 +93,7 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
          additionalFields: { cancellation_reason: 'Rejected by Kitchen' }
        });
 
-       // Transitioning parent order automatically cascades cancellation to the kitchen ticket!
        ticket = await kitchenService.getKitchenOrderTicket(tenantId, orderId);
-
        void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
        return formatMutationResponse(res, 200, { order: parentOrder, ticket }, ctx);
     } else {
@@ -115,19 +101,15 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
     }
 
     if (targetStatus) {
-       // 1. Fetch current ticket to check status and version
        const currentTicket = await kitchenService.getKitchenOrderTicket(tenantId, orderId);
        if (!currentTicket) throw new AppError('Ticket not found', 404, ErrorCode.NOT_FOUND);
 
-       // 2. Idempotency Checks
        let isIdempotent = false;
        if (currentTicket.status === targetStatus) {
          isIdempotent = true;
        } else if (targetStatus === 'ready' && currentTicket.status === 'delivered') {
-         // Marking ready when already delivered is idempotent success
          isIdempotent = true;
        } else if (type === 'KITCHEN_MARK_PREPARING' && (currentTicket.status === 'ready' || currentTicket.status === 'delivered')) {
-         // Marking preparing when already ready/delivered is idempotent success (unless it's a recall)
          isIdempotent = true;
        }
 
@@ -136,7 +118,6 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
          return formatMutationResponse(res, 200, { ticket: currentTicket }, ctx);
        }
 
-       // 3. Perform transition with actual version_num to avoid 409 Conflict
        ticket = await kitchenService.transitionKitchenOrderStatus({
          tenantId,
          ticketId: orderId,
