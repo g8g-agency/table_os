@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../../../config/supabase';
 import { AuthenticationError } from '../../../shared/errors/AppError';
 import { env } from '../../../config/env';
 import type { RuntimeJwtPayload } from './runtime-auth.service';
-import { ROLES, type Role } from '../../../types/rbac.types';
+import { type Role } from '../../../types/rbac.types';
 import { resolvePermissionsByRole } from '../../../utils/permission-checker';
 
 export interface StaffLoginRequest {

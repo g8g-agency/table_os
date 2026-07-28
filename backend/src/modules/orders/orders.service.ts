@@ -269,9 +269,9 @@ export async function createOrderFromCart(params: {
     const response = data as { order_id: string; invoice_id: string; status: string };
     
     // 7. Route to Kitchen (Compensating Transaction Saga)
-    let kitchenOrder;
     try {
-      kitchenOrder = await kitchenService.routeOrderToKitchen(tenantId, orderId);
+      const kitchenOrder = await kitchenService.routeOrderToKitchen(tenantId, orderId);
+      logger.info({ kitchenOrderId: kitchenOrder.id }, '[OrderService] Successfully routed order to kitchen');
     } catch (err: any) {
       logger.error({ err: err.message, orderId }, 'Failed to route order to kitchen. Executing compensating transaction to cancel order.');
       
@@ -314,8 +314,8 @@ export async function createOrderFromCart(params: {
       createdOrder
     );
 
-    // Pass through the raw RPC response fields as well so the frontend gets everything
-    return { ...createdOrder, ...response };
+    // Pass through response fields without type incompatibility
+    return { ...createdOrder, order_id: response.order_id, invoice_id: response.invoice_id } as any;
 
 }
 

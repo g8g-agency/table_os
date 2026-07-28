@@ -123,7 +123,6 @@ export async function bootstrap(
     if (hasTenant) {
       const rpcStart = Date.now();
       
-      const timeoutId = setTimeout(() => {}, 0); // Placeholder
       const timeoutPromise = new Promise<{data: any, error: any}>((_, reject) => 
         setTimeout(() => reject(new Error('Bootstrap context lookup timed out after 5000ms')), 5000)
       );
