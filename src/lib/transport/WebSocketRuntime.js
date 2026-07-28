@@ -53,8 +53,8 @@ export class WebSocketRuntime {
       this.reconnectAttempts > 0 ? TransportState.RECONNECTING : TransportState.CONNECTING
     );
 
-    const { runtimeJwt } = useRuntimeAuthStore.getState();
-    const token = runtimeJwt || this._getQrTokenFromUrl();
+    const { runtimeToken } = useRuntimeAuthStore.getState();
+    const token = runtimeToken || this._getQrTokenFromUrl();
 
     if (!token) {
       console.error('[WebSocketRuntime] No auth token available. Connection aborted.');

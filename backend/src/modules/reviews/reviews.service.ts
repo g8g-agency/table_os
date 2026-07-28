@@ -48,6 +48,7 @@ export async function submitReview(
     });
 
     if (error) throw error;
+    console.log('[ReviewService] Review submitted successfully:', { data, orderId });
     
     // We don't return the full review object from the RPC currently, just success
     return { id: 'rpc-success', tenant_id: tenantId, branch_id: order.branch_id, guest_session_id: session.id, rating, is_flagged: rating <= 2, created_at: new Date().toISOString(), order_id: orderId };

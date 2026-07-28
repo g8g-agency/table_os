@@ -169,10 +169,7 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
 export async function getOrderDetails(req: any, res: Response, next: any): Promise<void> {
   try {
     const { id } = req.params;
-    const tenantId = req.headers['x-tenant-id'] as string || req.qrSession?.tenant_id || req.context?.tenantId;
-    if (!tenantId) {
-      throw new AppError('Missing tenant identification context.', 400, ErrorCode.BAD_REQUEST);
-    }
+    const tenantId = (req.headers['x-tenant-id'] as string) || req.qrSession?.tenant_id || req.qrSession?.tenantId || req.context?.tenantId || req.context?.tenant_id || '';
     const order = await ordersService.getOrder(tenantId, id);
     res.status(200).json({ status: 'success', data: { order } });
   } catch (err) {

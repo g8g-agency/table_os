@@ -2,6 +2,7 @@ import { RuntimeObservabilityLayer } from '../observability/RuntimeObservability
 import { resolveApiBaseUrl } from '../../lib/resolveApiBaseUrl';
 import { RuntimeTransportManager } from '../transport/RuntimeTransportManager';
 import { useRuntimeAuthStore } from '../../store/runtimeAuthStore';
+import { useRuntimeIdentityStore } from '../../store/runtimeIdentityStore';
 
 export interface MutationRequest {
   mutation_id: string;
@@ -19,6 +20,7 @@ export interface MutationIdentity {
   idempotency_key: string;
   request_id: string; // Trace ID for observability
   status: MutationStatus;
+  retry_count?: number;
 }
 
 export class MutationGateway {
@@ -71,10 +73,11 @@ export class MutationGateway {
     const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     this.apiBaseUrl = API_BASE_URL;
 
-    // Get tenant and branch from runtime auth store
+    // Get tenant and branch from runtime auth store or identity store fallback
     const authState = useRuntimeAuthStore.getState();
-    const tenantId = authState.tenantId || null;
-    const branchId = authState.branchId || null;
+    const identityState = useRuntimeIdentityStore.getState();
+    const tenantId = authState.tenantId || identityState.effectiveTenantId || (identityState as any).tenantId || null;
+    const branchId = authState.branchId || identityState.branchId || null;
 
     console.log('[MutationGateway] Auth state for envelope:', {
       hasTenantId: !!tenantId,

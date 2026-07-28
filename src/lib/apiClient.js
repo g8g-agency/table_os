@@ -36,6 +36,9 @@ export async function fetchWithRuntime(endpoint, options = {}) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  if (identity && identity.effectiveTenantId) {
+    headers.set('X-Tenant-Id', identity.effectiveTenantId);
+  }
   if (identity && identity.branchId) {
     headers.set('X-Branch-Id', identity.branchId);
   }

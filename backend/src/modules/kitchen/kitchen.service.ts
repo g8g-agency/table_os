@@ -11,7 +11,6 @@ import * as ordersRepo from '../orders/orders.repository';
 import { transitionOrderStatus } from '../orders/orders.service';
 import { supabaseAdmin } from '../../config/supabase';
 import { KitchenStationRouter } from './kitchen-station-router';
-import { KitchenQueueProjectionService } from './kitchen-queue-projection.service';
 import { RealtimePublisherService } from '../realtime/realtime-publisher.service';
 import { WebSocketManager } from '../transport/websocket.manager';
 import { logger } from '../../shared/utils/logger';
@@ -61,67 +60,77 @@ export async function routeOrderToKitchen(tenantId: string, orderId: string): Pr
   }
 
   // Fetch modifier snapshots
-  const itemIds = itemSnapshots.map((item) => item.id);
-  const { data: modifierSnapshots, error: modsError } = await supabaseAdmin
-    .from('order_modifier_snapshots')
+  const itemSnapshotIds = itemSnapshots.map(i => i.id);
+  const { data: modifierSnapshots } = await supabaseAdmin
+    .from('order_item_modifier_snapshots')
     .select('*')
     .eq('tenant_id', tenantId)
-    .in('order_item_snapshot_id', itemIds);
+    .in('order_item_snapshot_id', itemSnapshotIds);
 
-  if (modsError) {
-    throw new AppError(`Failed to fetch modifier snapshots for kitchen routing: ${modsError.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  // 4. Resolve default station for branch
+  const primaryStationId = await KitchenStationRouter.resolveStationForItem(tenantId, order.branch_id, itemSnapshots[0]?.menu_item_id || '');
+
+  // 5. Create the primary kitchen_orders record
+  const { data: kitchenOrder, error: createError } = await supabaseAdmin
+    .from('kitchen_orders')
+    .insert({
+      tenant_id: tenantId,
+      branch_id: order.branch_id,
+      order_id: orderId,
+      station_id: primaryStationId,
+      status: 'pending',
+      priority: 1,
+      estimated_prep_seconds: 600,
+      kitchen_notes: order.cancellation_reason || null,
+      version_num: 1,
+    })
+    .select('*')
+    .single();
+
+  if (createError || !kitchenOrder) {
+    throw new AppError(`Failed to create kitchen order ticket: ${createError?.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
 
-  // 4. Create kitchen order ticket header (Default station is null at header level as items are routed individually)
-  const kitchenOrder = await kitchenRepo.createKitchenOrder({
-    tenant_id: tenantId,
-    branch_id: order.branch_id,
-    order_id: orderId,
-    station_id: null,
-    status: 'pending',
-    kitchen_notes: order.order_notes || undefined,
-  });
-
-  // 5. Build and bulk insert kitchen order item records
-  const kitchenItemsToInsert = itemSnapshots.map((item) => {
-    // Collate modifier summary list
-    const itemMods = (modifierSnapshots ?? []).filter((m) => m.order_item_snapshot_id === item.id);
-    const modSummary = itemMods.map((m) => m.modifier_option_name_snapshot).join(', ');
-
+  // 6. Create child kitchen_order_items records
+  const kitchenItemsToInsert = itemSnapshots.map(item => {
+    const itemMods = (modifierSnapshots || []).filter(m => m.order_item_snapshot_id === item.id);
     return {
       tenant_id: tenantId,
       kitchen_order_id: kitchenOrder.id,
       order_item_snapshot_id: item.id,
-      item_name: item.item_name_snapshot,
+      item_name: item.item_name_snapshot || item.name || 'UNKNOWN',
       quantity: item.quantity,
-      item_notes: item.item_notes,
-      modifier_summary: modSummary || null,
-      display_order: item.display_order,
+      modifier_summary: itemMods.map((m: any) => m.modifier_name).join(', ') || null,
     };
   });
 
-  const insertedItems = await kitchenRepo.createKitchenOrderItems(kitchenItemsToInsert);
+  const { data: insertedItems, error: insertItemsError } = await supabaseAdmin
+    .from('kitchen_order_items')
+    .insert(kitchenItemsToInsert)
+    .select('*');
 
-  // 6. Route individual items to their stations and create preparations
-  const itemsToRoute = insertedItems.map((ii) => {
-    const snap = itemSnapshots.find((s) => s.id === ii.order_item_snapshot_id);
-    return {
-      id: ii.id,
-      orderItemSnapshotId: ii.order_item_snapshot_id,
-      menuItemId: snap?.menu_item_id || '',
-      quantity: ii.quantity,
-    };
-  });
+  if (insertItemsError) {
+    logger.error({ insertItemsError }, '[KitchenService] Partial failure inserting kitchen order items.');
+  } else if (insertedItems) {
+    // Route item preparations
+    await KitchenStationRouter.routeOrderItems(
+      tenantId,
+      order.branch_id,
+      kitchenOrder.id,
+      insertedItems.map(i => ({
+        id: i.id,
+        orderItemSnapshotId: i.order_item_snapshot_id,
+        menuItemId: itemSnapshots.find(s => s.id === i.order_item_snapshot_id)?.menu_item_id || '',
+        quantity: i.quantity,
+      }))
+    );
+  }
 
-  await KitchenStationRouter.routeOrderItems(tenantId, order.branch_id, kitchenOrder.id, itemsToRoute);
-
-  // 7. Log order routed event in monotonic sequence
-  const { data: sequenceNum, error: rpcError } = await supabaseAdmin.rpc('log_branch_operational_event', {
+  // 7. Log operational sequence
+  const { data: sequenceNum, error: rpcError } = await supabaseAdmin.rpc('log_branch_operational_sequence', {
     p_tenant_id: tenantId,
     p_branch_id: order.branch_id,
-    p_event_type: 'KDS_ORDER_ROUTED',
-    p_aggregate_id: kitchenOrder.id,
-    p_aggregate_type: 'KitchenOrder',
+    p_event_type: 'KDS_TICKET_ROUTED',
     p_payload: {
       kitchenOrderId: kitchenOrder.id,
       orderId,
@@ -159,7 +168,6 @@ export async function routeOrderToKitchen(tenantId: string, orderId: string): Pr
     logger.error({ realtimeErr: realtimeErr.message }, '[KitchenService] Realtime broadcast routing error.');
   }
 
-  // ── Also broadcast via WebSocket so KDS frontend subscription fires immediately ──
   try {
     WebSocketManager.getInstance().broadcastToBranch(
       order.branch_id,
@@ -219,7 +227,7 @@ export async function transitionKitchenOrderStatus(params: {
     throw new AppError('Kitchen ticket was modified by another request. Reload and retry.', 409, ErrorCode.CONFLICT);
   }
 
-  // 4. Synchronize status with parent Order (walk through required intermediates)
+  // 4. Synchronize status with parent Order
   const order = await ordersRepo.getOrderById(tenantId, ticket.order_id);
   if (order) {
     const STATUS_WALK: Record<string, ordersRepo.OrderStatus[]> = {
@@ -227,6 +235,7 @@ export async function transitionKitchenOrderStatus(params: {
       preparing: ['accepted', 'preparing'],
       ready:     ['accepted', 'preparing', 'ready'],
       delivered: ['accepted', 'preparing', 'ready', 'delivered'],
+      completed: ['accepted', 'preparing', 'ready', 'delivered', 'completed'],
     };
 
     const steps = STATUS_WALK[targetStatus];
@@ -234,14 +243,12 @@ export async function transitionKitchenOrderStatus(params: {
       let currentOrderStatus = order.status;
       let currentVersionNum = order.version_num;
 
-      // Do not attempt to walk a parent order that is in a terminal state
       const TERMINAL_STATES = ['cancelled', 'rejected', 'completed', 'refunded'];
-      if (TERMINAL_STATES.includes(currentOrderStatus)) {
-        return updatedTicket; // Skip syncing to parent
+      if (TERMINAL_STATES.includes(currentOrderStatus) && targetStatus !== 'delivered') {
+        return updatedTicket;
       }
 
       for (const step of steps) {
-        // Skip states the parent order has already passed through
         const ORDER_RANK: Record<string, number> = {
           pending: 0, accepted: 1, preparing: 2,
           ready: 3, delivered: 4, completed: 5,
@@ -269,6 +276,36 @@ export async function transitionKitchenOrderStatus(params: {
     }
   }
 
+  // ── Broadcast real-time order update to Staff App ──────────────────────
+  // The Staff app listens for 'order_update' events to refresh order details
+  // and projection. Without this, status changes from KDS (ready/delivered)
+  // are invisible to Staff until they manually refresh or poll.
+  try {
+    const freshOrder = await ordersRepo.getOrderById(ticket.tenant_id, ticket.order_id);
+    if (freshOrder) {
+      WebSocketManager.getInstance().broadcastToBranch(
+        freshOrder.branch_id,
+        'KDS',
+        'OPERATIONAL_STREAM',
+        'order_update',
+        {
+          orderId: freshOrder.id,
+          status: freshOrder.status,
+          tableId: freshOrder.table_id,
+          order: freshOrder,
+          kitchenTicketStatus: targetStatus,
+          branchId: freshOrder.branch_id,
+        }
+      );
+      logger.info(
+        { orderId: freshOrder.id, kitchenStatus: targetStatus, orderStatus: freshOrder.status },
+        '[KitchenService] Broadcast order_update to Staff App after KDS transition'
+      );
+    }
+  } catch (wsErr: any) {
+    logger.error({ error: wsErr.message }, '[KitchenService] Non-fatal: Failed to broadcast order_update after KDS transition');
+  }
+
   return updatedTicket;
 }
 
@@ -281,66 +318,80 @@ export async function getKitchenOrderTicket(tenantId: string, id: string): Promi
   return { ...ticket, items };
 }
 
-export async function handleParentOrderCancelled(tenantId: string, orderId: string, userId?: string): Promise<void> {
-  const { data: ticket, error } = await supabaseAdmin
-    .from('kitchen_orders')
-    .select('id, status, version_num')
-    .eq('tenant_id', tenantId)
-    .eq('order_id', orderId)
-    .maybeSingle();
-
-  if (error) {
-    logger.error({ error: error.message, orderId }, '[KitchenService] Error fetching kitchen order for cancellation');
-    return;
-  }
-
-  if (ticket && ticket.status !== 'delivered' && ticket.status !== 'cancelled') {
-    logger.info({ ticketId: ticket.id, orderId }, '[KitchenService] Cascading parent cancellation to kitchen ticket');
-    await kitchenRepo.updateKitchenOrderStatus(
-      tenantId,
-      ticket.id,
-      'cancelled',
-      ticket.version_num,
-      userId
-    );
-    
-    // Broadcast realtime event for kitchen cancellation
-    try {
-      const { data: fullTicket } = await supabaseAdmin.from('kitchen_orders').select('branch_id').eq('id', ticket.id).single();
-      if (fullTicket) {
-        const topic = RealtimePublisherService.getBranchTopic(tenantId, fullTicket.branch_id);
-        const broadcastChannel = supabaseAdmin.channel(topic);
-        await broadcastChannel.send({
-          type: 'broadcast',
-          event: 'KDS_TICKET_CANCELLED',
-          payload: {
-            branchId: fullTicket.branch_id,
-            eventType: 'KDS_TICKET_CANCELLED',
-            timestamp: new Date().toISOString(),
-            payload: {
-              kitchenOrderId: ticket.id,
-              orderId,
-              status: 'cancelled',
-            },
-          },
-        });
-        await supabaseAdmin.removeChannel(broadcastChannel);
-      }
-    } catch (realtimeErr: any) {
-      logger.error({ realtimeErr: realtimeErr.message }, '[KitchenService] Realtime broadcast cancellation error.');
-    }
-  }
-}
-
 export async function getKitchenQueue(
   tenantId: string,
   branchId: string,
-  filters?: { status?: kitchenRepo.KitchenOrderStatus; stationId?: string }
+  options?: { status?: kitchenRepo.KitchenOrderStatus; stationId?: string }
 ): Promise<any[]> {
-  // Use our new prioritized queue projection service
-  return await KitchenQueueProjectionService.getActiveQueueProjections(
+  const { KitchenQueueProjectionService } = await import('./kitchen-queue-projection.service');
+  const projections = await KitchenQueueProjectionService.getActiveQueueProjections(
     tenantId,
     branchId,
-    filters?.stationId
+    options?.stationId
   );
+  if (options?.status) {
+    return projections.filter(p => p.status === options.status);
+  }
+  return projections;
+}
+
+export async function handleParentOrderCancelled(tenantId: string, orderId: string, userId?: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('kitchen_orders')
+    .update({ status: 'cancelled', updated_by: userId })
+    .eq('tenant_id', tenantId)
+    .eq('order_id', orderId)
+    .neq('status', 'completed')
+    .neq('status', 'cancelled');
+
+  if (error) {
+    logger.error({ error: error.message, orderId }, '[KitchenService] Failed to cascade cancellation to kitchen orders');
+    throw new AppError('Failed to cancel associated kitchen tickets', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  }
+}
+
+export async function autoCompleteOverdueReadyOrders(): Promise<number> {
+  try {
+    const fiveMinsAgoMs = Date.now() - 5 * 60 * 1000;
+    
+    // Fetch all kitchen orders currently in 'ready' status
+    const { data: readyTickets, error } = await supabaseAdmin
+      .from('kitchen_orders')
+      .select('id, tenant_id, version_num, ready_at, updated_at')
+      .eq('status', 'ready');
+
+    if (error || !readyTickets || readyTickets.length === 0) {
+      return 0;
+    }
+
+    const expired = readyTickets.filter((t: any) => {
+      const timestampStr = t.ready_at || t.updated_at;
+      if (!timestampStr) return false;
+      const ticketTime = new Date(timestampStr).getTime();
+      return ticketTime <= fiveMinsAgoMs;
+    });
+
+    if (expired.length === 0) return 0;
+
+    let count = 0;
+    for (const ticket of expired) {
+      try {
+        await transitionKitchenOrderStatus({
+          tenantId: ticket.tenant_id,
+          ticketId: ticket.id,
+          targetStatus: 'delivered',
+          versionNum: ticket.version_num ?? 1,
+          userId: 'system_auto_complete',
+        });
+        count++;
+        logger.info({ ticketId: ticket.id }, '⏱️ [KitchenService] Auto-completed order in ready status for > 5 minutes');
+      } catch (err: any) {
+        logger.warn({ ticketId: ticket.id, error: err?.message }, '[KitchenService] Failed auto-completing ready ticket');
+      }
+    }
+    return count;
+  } catch (err: any) {
+    logger.error({ error: err?.message }, '[KitchenService] Exception in autoCompleteOverdueReadyOrders');
+    return 0;
+  }
 }

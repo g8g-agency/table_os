@@ -47,8 +47,7 @@ BEGIN
     PERFORM 1 FROM public.guest_sessions
      WHERE id = p_session_id
        AND tenant_id = p_tenant_id
-       AND is_active = true
-       AND resolved_at IS NULL;
+       AND is_active = true;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'QR Session is closed or resolved' USING ERRCODE = '22000';
     END IF;

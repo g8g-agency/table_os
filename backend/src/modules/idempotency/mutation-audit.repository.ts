@@ -51,6 +51,12 @@ export async function updateMutationAuditStatus(
   resolvedAt?: string
 ): Promise<void> {
   try {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mutationId || '');
+    if (!isUuid) {
+      logger.warn({ mutationId }, '[MutationAudit] Skipping audit update for non-UUID mutationId');
+      return;
+    }
+
     const updatePayload: any = { status };
     if (failureReason) updatePayload.failure_reason = failureReason;
     if (resolvedAt) updatePayload.resolved_at = resolvedAt;

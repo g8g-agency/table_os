@@ -113,18 +113,10 @@ export class ProjectionCoordinator {
       return this.localWatermarks.get('orders') || 0;
     }
 
-    // 1. Authoritative Fetch
+    // 1. Authoritative Fetch — use fetchWithRuntime so the URL is resolved
+    // correctly via resolveApiBaseUrl() and the auth token is injected.
     const endpoint = orderId ? `/api/v1/orders/${orderId}` : `/api/v1/orders?branchId=${branchId}`;
-    
-    // We bypass fetchWithRuntime here if we strictly want signal support, 
-    // but assuming standard fetch api, we can pass it via options.
-    const response = await fetch(import.meta.env.VITE_API_URL + endpoint, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      signal
-    });
+    const response = await fetchWithRuntime(endpoint, { signal });
 
     if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
     const data = await response.json();

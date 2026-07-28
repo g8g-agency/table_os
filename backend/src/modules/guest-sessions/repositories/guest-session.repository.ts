@@ -35,7 +35,6 @@ export class GuestSessionRepository {
         guest_identifier: dto.customer_identity_id,
         is_active: true,
         qr_code_id: dto.qr_code_id ?? null,
-        expires_at: dto.expires_at,
         session_data: {
           device_fingerprints: [dto.device_fingerprint],
           expires_at: dto.expires_at,
