@@ -84,21 +84,21 @@ export const useKitchenOrdersProjection = create((set, get) => ({
             });
           }
         } 
-        else if (type === 'KITCHEN_MARK_READY' || type === 'KITCHEN_BUMP_TICKET') {
-          // Do NOT optimistically remove or change to ready. 
-          // Instead, put into a pending operational state visually.
-          order.isPendingOperationalConfirmation = true;
+        else if (type === 'KITCHEN_MARK_READY') {
+          order.status = 'ready';
+        }
+        else if (type === 'KITCHEN_BUMP_TICKET') {
+          order.status = 'completed';
         }
         else if (type === 'KITCHEN_RECALL_TICKET') {
-          // Do NOT optimistically recall. Wait for backend authoritative state.
+          order.status = 'preparing';
         }
         else if (type === 'KITCHEN_REASSIGN_STATION') {
-          // Wait for backend confirmation
           order.isPendingStationReassignment = true;
         }
       }
     });
 
-    return baseOrders;
+    return baseOrders.filter(o => o.status !== 'completed' && o.status !== 'delivered' && o.status !== 'cancelled');
   }
 }));

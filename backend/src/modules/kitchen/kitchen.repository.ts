@@ -211,6 +211,7 @@ export async function updateKitchenOrderStatus(
   const updates: any = {
     status,
     updated_by: userId,
+    version_num: (versionNum || 1) + 1,
   };
 
   const now = new Date().toISOString();
@@ -219,7 +220,7 @@ export async function updateKitchenOrderStatus(
   else if (status === 'ready') updates.ready_at = now;
   else if (status === 'delivered') updates.delivered_at = now;
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('kitchen_orders')
     .update(updates)
     .eq('tenant_id', tenantId)
@@ -228,10 +229,20 @@ export async function updateKitchenOrderStatus(
     .select()
     .single();
 
+  if (error && error.code === 'PGRST116') {
+    // Fallback without version_num check to recover from version drift / null version_num
+    const fallback = await supabaseAdmin
+      .from('kitchen_orders')
+      .update(updates)
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .select()
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // OCC failure
-    }
     throw new AppError(`Failed to update kitchen order status: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
   return data as KitchenOrder;

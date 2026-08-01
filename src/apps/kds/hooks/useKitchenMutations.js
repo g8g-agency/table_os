@@ -40,17 +40,9 @@ export function useKitchenMutations() {
       const { runtimeSessionId, kitchenDeviceId } = useKdsIdentityStore.getState();
       const id = resolveId(order);
       
-      console.log('[KDS] markPreparing called with:', {
-        orderId: id,
-        orderStatus: order.status,
-        runtimeSessionId,
-        kitchenDeviceId
-      });
-      
-      const ts = Date.now();
       const result = await submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_MARK_PREPARING_${id}_${ts}`,
-        idempotency_key: `KITCHEN_MARK_PREPARING_${id}_${ts}`,
+        mutation_id: crypto.randomUUID(),
+        idempotency_key: crypto.randomUUID(),
         payload: {
           type: 'KITCHEN_MARK_PREPARING',
           orderId: id,
@@ -70,10 +62,9 @@ export function useKitchenMutations() {
       const { runtimeSessionId, kitchenDeviceId } = useKdsIdentityStore.getState();
       const id = resolveId(order);
       
-      const ts = Date.now();
       const result = await submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_MARK_READY_${id}_${ts}`,
-        idempotency_key: `KITCHEN_MARK_READY_${id}_${ts}`,
+        mutation_id: crypto.randomUUID(),
+        idempotency_key: crypto.randomUUID(),
         payload: {
           type: 'KITCHEN_MARK_READY',
           orderId: id,
@@ -89,10 +80,9 @@ export function useKitchenMutations() {
       const { runtimeSessionId, kitchenDeviceId, stationId } = useKdsIdentityStore.getState();
       const id = resolveId(order);
       
-      const ts = Date.now();
       const result = await submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_BUMP_TICKET_${id}_${stationId}_${ts}`,
-        idempotency_key: `KITCHEN_BUMP_TICKET_${id}_${stationId}_${ts}`,
+        mutation_id: crypto.randomUUID(),
+        idempotency_key: crypto.randomUUID(),
         payload: {
           type: 'KITCHEN_BUMP_TICKET',
           orderId: id,
@@ -110,8 +100,8 @@ export function useKitchenMutations() {
       const id = resolveId(order);
       
       const result = await submitMutation('/api/v1/mutations', {
-        mutation_id: `KITCHEN_RECALL_TICKET_${id}_${Date.now()}`,
-        idempotency_key: `KITCHEN_RECALL_TICKET_${id}`,
+        mutation_id: crypto.randomUUID(),
+        idempotency_key: crypto.randomUUID(),
         payload: {
           type: 'KITCHEN_RECALL_TICKET',
           orderId: id,

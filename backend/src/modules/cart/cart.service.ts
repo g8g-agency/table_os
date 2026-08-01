@@ -310,6 +310,9 @@ async function _calculateCartTotals(
     p_menu_item_ids: menuItemIds,
     p_effective_at: new Date().toISOString(),
   });
+  if (taxError) {
+    console.warn('[CartService] tax batch resolution warning:', taxError);
+  }
 
   const taxBatchResults = (taxBatch ?? []) as any[];
   const taxProfilesMap = new Map<string, any>();

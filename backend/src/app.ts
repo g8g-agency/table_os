@@ -196,6 +196,7 @@ export function createApp(): express.Application {
   app.use('/api/v1/public/branches', snapshotRouter);
   app.use('/api/v1/public/branches', publicAvailabilityRouter);
   app.use('/public', publicMenuRouter);
+  app.use('/api/v1/public', publicMenuRouter);
   
   // Public Guest Menu API
   app.use('/api/v1/menu', publicGuestMenuRouter);
@@ -206,6 +207,7 @@ export function createApp(): express.Application {
 
   // ─── Public QR Runtime API (no auth required, rate limited) ──────────
   app.use('/api/v1/public/table', publicQrRouter);
+  app.use('/api/v1/public/qr', publicQrRouter);
   app.use('/api/v1/qr', qrRouter);
 
   // ─── Public Cart API (requires QR session token) ────────────
