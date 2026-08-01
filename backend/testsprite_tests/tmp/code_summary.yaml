@@ -1,0 +1,37 @@
+version: "2"
+type: backend
+tech_stack:
+  - typescript
+  - express
+  - nodejs
+  - postgresql
+features:
+  - name: Auth API
+    description: User authentication operations
+    files:
+      - src/modules/auth/auth.controller.ts
+    endpoints:
+      - method: POST
+        path: /api/auth/login
+        description: Authenticate user
+        auth_required: false
+        request_schema:
+          body:
+            email: string
+            password: string
+        response_schema:
+          "200": Token
+  - name: Admin API
+    description: Admin management endpoints
+    files:
+      - src/modules/admin/admin.controller.ts
+    endpoints:
+      - method: GET
+        path: /api/admin/dashboard
+        description: Get admin dashboard data
+        auth_required: true
+        response_schema:
+          "200": DashboardData
+    depends_on:
+      - Authentication
+known_limitations: []

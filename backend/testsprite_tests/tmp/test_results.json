@@ -1,0 +1,58 @@
+[
+  {
+    "projectId": "da6e4582-aa0d-4705-8d52-48d2ce7b254d",
+    "testId": "4043f573-3393-4e8a-a312-f256d0de1f64",
+    "userId": "0488a438-90b1-70e0-aaa7-a779a7f4453a",
+    "title": "TC001-postapiauthloginwithvalidcredentials",
+    "description": "Test POST /api/auth/login with valid email and password to verify successful authentication and receipt of JWT token with status 200.",
+    "code": "import requests\n\nBASE_URL = \"http://localhost:3001\"\nLOGIN_ENDPOINT = \"/api/auth/login\"\nTIMEOUT = 30\n\ndef test_post_api_auth_login_with_valid_credentials():\n    url = BASE_URL + LOGIN_ENDPOINT\n    headers = {\"Content-Type\": \"application/json\"}\n    # Provide valid credentials here; these should be replaced with actual valid test credentials\n    payload = {\n        \"email\": \"validuser@example.com\",\n        \"password\": \"ValidPassword123!\"\n    }\n\n    try:\n        response = requests.post(url, json=payload, headers=headers, timeout=TIMEOUT)\n        assert response.status_code == 200, f\"Expected status code 200, got {response.status_code}\"\n\n        json_response = response.json()\n        # The response should contain a token (JWT)\n        assert \"token\" in json_response or \"accessToken\" in json_response, \"Response JSON does not contain JWT token\"\n        token_value = json_response.get(\"token\") or json_response.get(\"accessToken\")\n        assert isinstance(token_value, str) and len(token_value) > 0, \"JWT token is empty or not a string\"\n\n    except requests.RequestException as e:\n        assert False, f\"Request to {url} failed with exception: {e}\"\n\ntest_post_api_auth_login_with_valid_credentials()",
+    "testStatus": "FAILED",
+    "testError": "Traceback (most recent call last):\n  File \"/var/task/handler.py\", line 258, in run_with_retry\n    exec(code, exec_env)\n  File \"<string>\", line 29, in <module>\n  File \"<string>\", line 18, in test_post_api_auth_login_with_valid_credentials\nAssertionError: Expected status code 200, got 404\n",
+    "testType": "BACKEND",
+    "createFrom": "mcp",
+    "created": "2026-07-23T22:20:05.836Z",
+    "modified": "2026-07-23T22:20:19.538Z"
+  },
+  {
+    "projectId": "da6e4582-aa0d-4705-8d52-48d2ce7b254d",
+    "testId": "6b9375d5-8258-4be5-b880-cb9796f7c46d",
+    "userId": "0488a438-90b1-70e0-aaa7-a779a7f4453a",
+    "title": "TC002-postapiauthloginwithinvalidcredentials",
+    "description": "Test POST /api/auth/login with invalid email or password to verify response with 400 Bad Request or 401 Unauthorized and appropriate error details.",
+    "code": "import requests\n\ndef test_post_api_auth_login_with_invalid_credentials():\n    base_url = \"http://localhost:3001\"\n    endpoint = \"/api/auth/login\"\n    url = base_url + endpoint\n    headers = {\n        \"Content-Type\": \"application/json\"\n    }\n    # Invalid credentials examples\n    invalid_credentials_list = [\n        {\"email\": \"invalidemail@example.com\", \"password\": \"wrongpassword\"},\n        {\"email\": \"user@example.com\", \"password\": \"incorrectpassword\"},\n        {\"email\": \"\", \"password\": \"somepassword\"},\n        {\"email\": \"user@example.com\", \"password\": \"\"},\n        {\"email\": \"notanemail\", \"password\": \"password123\"},\n    ]\n\n    for credentials in invalid_credentials_list:\n        try:\n            response = requests.post(url, json=credentials, headers=headers, timeout=30)\n        except requests.RequestException as e:\n            assert False, f\"Request failed: {e}\"\n\n        # Acceptable status codes are 400 or 401\n        assert response.status_code in (400, 401), \\\n            f\"Expected status 400 or 401, got {response.status_code} for payload {credentials}\"\n\n        # Response should contain error details in JSON\n        try:\n            resp_json = response.json()\n        except ValueError:\n            assert False, \"Response is not a valid JSON\"\n\n        # Check for error message or error details field presence\n        error_keys = [\"error\", \"message\", \"detail\", \"errors\"]\n        assert any(key in resp_json for key in error_keys), \\\n            f\"Response JSON does not contain expected error details keys for payload {credentials}\"\n\ntest_post_api_auth_login_with_invalid_credentials()\n",
+    "testStatus": "FAILED",
+    "testError": "Traceback (most recent call last):\n  File \"/var/task/handler.py\", line 258, in run_with_retry\n    exec(code, exec_env)\n  File \"<string>\", line 40, in <module>\n  File \"<string>\", line 26, in test_post_api_auth_login_with_invalid_credentials\nAssertionError: Expected status 400 or 401, got 404 for payload {'email': 'invalidemail@example.com', 'password': 'wrongpassword'}\n",
+    "testType": "BACKEND",
+    "createFrom": "mcp",
+    "created": "2026-07-23T22:20:05.848Z",
+    "modified": "2026-07-23T22:20:25.997Z"
+  },
+  {
+    "projectId": "da6e4582-aa0d-4705-8d52-48d2ce7b254d",
+    "testId": "69dda7e1-c475-4245-a98d-0ae521c3b949",
+    "userId": "0488a438-90b1-70e0-aaa7-a779a7f4453a",
+    "title": "TC003-getapiadmindashboardwithvalidjwtandauthorizedrole",
+    "description": "Test GET /api/admin/dashboard with a valid JWT token and authorized user role to verify successful retrieval of dashboard data with status 200.",
+    "code": "import requests\n\nBASE_URL = \"http://localhost:3001\"\nLOGIN_ENDPOINT = \"/api/auth/login\"\nDASHBOARD_ENDPOINT = \"/api/admin/dashboard\"\nTIMEOUT = 30\n\ndef test_getapiadmindashboardwithvalidjwtandauthorizedrole():\n    # Valid credentials for an authorized user role (should be replaced with real test credentials)\n    login_payload = {\n        \"email\": \"authorized_user@example.com\",\n        \"password\": \"StrongPassword123!\"\n    }\n\n    try:\n        # Authenticate to get JWT token\n        login_response = requests.post(\n            BASE_URL + LOGIN_ENDPOINT,\n            json=login_payload,\n            timeout=TIMEOUT\n        )\n        assert login_response.status_code == 200, f\"Login failed with status {login_response.status_code}\"\n        login_json = login_response.json()\n        token = login_json.get(\"token\")\n        assert token, \"JWT token not present in login response\"\n\n        # Use JWT token to access admin dashboard\n        headers = {\n            \"Authorization\": f\"Bearer {token}\"\n        }\n        dashboard_response = requests.get(\n            BASE_URL + DASHBOARD_ENDPOINT,\n            headers=headers,\n            timeout=TIMEOUT\n        )\n        assert dashboard_response.status_code == 200, f\"Dashboard access failed with status {dashboard_response.status_code}\"\n        dashboard_data = dashboard_response.json()\n        assert dashboard_data, \"Dashboard response body is empty\"\n    except requests.RequestException as e:\n        assert False, f\"HTTP request failed: {e}\"\n\ntest_getapiadmindashboardwithvalidjwtandauthorizedrole()",
+    "testStatus": "FAILED",
+    "testError": "Traceback (most recent call last):\n  File \"/var/task/handler.py\", line 258, in run_with_retry\n    exec(code, exec_env)\n  File \"<string>\", line 42, in <module>\n  File \"<string>\", line 22, in test_getapiadmindashboardwithvalidjwtandauthorizedrole\nAssertionError: Login failed with status 404\n",
+    "testType": "BACKEND",
+    "createFrom": "mcp",
+    "created": "2026-07-23T22:20:05.902Z",
+    "modified": "2026-07-23T22:20:19.769Z"
+  },
+  {
+    "projectId": "da6e4582-aa0d-4705-8d52-48d2ce7b254d",
+    "testId": "a9a8acfd-6a31-467c-86cb-e359320ce2a9",
+    "userId": "0488a438-90b1-70e0-aaa7-a779a7f4453a",
+    "title": "TC004-getapiadmindashboardwithoutjwtortokenwithinsufficientpermissions",
+    "description": "Test GET /api/admin/dashboard without JWT token or with a token having insufficient permissions to verify response with 401 Unauthorized or 403 Forbidden.",
+    "code": "import requests\n\nBASE_URL = \"http://localhost:3001\"\nTIMEOUT = 30\n\ndef test_get_api_admin_dashboard_without_jwt_or_insufficient_permissions():\n    url = f\"{BASE_URL}/api/admin/dashboard\"\n    headers_no_token = {}\n    \n    # Test without JWT token\n    try:\n        response = requests.get(url, headers=headers_no_token, timeout=TIMEOUT)\n        assert response.status_code in (401, 403), f\"Expected 401 or 403 but got {response.status_code}\"\n    except requests.RequestException as e:\n        assert False, f\"Request failed without token: {e}\"\n\n    # Test with a token having insufficient permissions\n    # We login as a user with insufficient permissions to get such a token\n    login_url = f\"{BASE_URL}/api/auth/login\"\n    # Assuming these credentials belong to a user with insufficient permissions\n    insufficient_user_credentials = {\n        \"email\": \"insufficient@user.com\",\n        \"password\": \"password123\"\n    }\n\n    token = None\n    try:\n        login_resp = requests.post(login_url, json=insufficient_user_credentials, timeout=TIMEOUT)\n        if login_resp.status_code == 200:\n            json_resp = login_resp.json()\n            token = json_resp.get(\"token\")\n        else:\n            # If login fails, we cannot proceed with permission test, fail immediately\n            assert False, f\"Login for insufficient permissions user failed with status {login_resp.status_code}\"\n    except requests.RequestException as e:\n        assert False, f\"Login request failed: {e}\"\n\n    if token:\n        headers_insufficient = {\n            \"Authorization\": f\"Bearer {token}\"\n        }\n        try:\n            resp_with_token = requests.get(url, headers=headers_insufficient, timeout=TIMEOUT)\n            assert resp_with_token.status_code in (401, 403), f\"Expected 401 or 403 but got {resp_with_token.status_code}\"\n        except requests.RequestException as e:\n            assert False, f\"Request with insufficient permissions token failed: {e}\"\n\ntest_get_api_admin_dashboard_without_jwt_or_insufficient_permissions()",
+    "testStatus": "FAILED",
+    "testError": "Traceback (most recent call last):\n  File \"/var/task/handler.py\", line 258, in run_with_retry\n    exec(code, exec_env)\n  File \"<string>\", line 48, in <module>\n  File \"<string>\", line 13, in test_get_api_admin_dashboard_without_jwt_or_insufficient_permissions\nAssertionError: Expected 401 or 403 but got 404\n",
+    "testType": "BACKEND",
+    "createFrom": "mcp",
+    "created": "2026-07-23T22:20:05.909Z",
+    "modified": "2026-07-23T22:20:19.127Z"
+  }
+]

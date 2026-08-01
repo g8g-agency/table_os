@@ -50,7 +50,7 @@ export async function requireQrSession(req: Request, _res: Response, next: NextF
         throw new AppError('Guest session not found', 404, ErrorCode.NOT_FOUND);
       }
       if (!session.is_active) {
-        throw new AppError('Guest session is not active', 403, ErrorCode.FORBIDDEN);
+        throw new AppError('Guest session is not active', 408, ErrorCode.FORBIDDEN);
       }
       
       // Session expiration is no longer strictly enforced here; we rely on is_active.

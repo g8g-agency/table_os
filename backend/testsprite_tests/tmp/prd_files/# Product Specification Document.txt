@@ -1,0 +1,691 @@
+# Product Specification Document
+
+## Orderlly Admin Backend API & Database Specification
+
+### Version
+
+1.0
+
+### Product
+
+Orderlly Restaurant Management Platform
+
+### Component
+
+Admin Backend (Node.js + Express + PostgreSQL + Supabase)
+
+---
+
+# Purpose
+
+The Admin Backend provides secure APIs and business logic for restaurant owners and managers to manage every aspect of the restaurant. It handles authentication, authorization, validation, business rules, database operations, audit logging, and integrations with all platform modules.
+
+---
+
+# Objectives
+
+Validate:
+
+* Authentication
+* Authorization (RBAC)
+* Tenant Isolation
+* Branch Isolation
+* CRUD APIs
+* Business Rules
+* Validation
+* Database Integrity
+* Performance
+* Security
+* Logging
+* Error Handling
+* API Consistency
+* Realtime Events
+* Audit Logging
+
+---
+
+# Technology Stack
+
+Backend
+
+* Node.js
+* Express
+* TypeScript
+
+Database
+
+* PostgreSQL
+* Supabase
+
+Authentication
+
+* JWT
+* Supabase Auth
+
+Realtime
+
+* Supabase Realtime
+
+---
+
+# User Roles
+
+## Owner
+
+Full system access.
+
+## Manager
+
+Branch-level administrative access.
+
+---
+
+# Authentication APIs
+
+### Login
+
+```
+POST /api/v1/auth/login
+```
+
+Expected
+
+* Validate credentials
+* Generate JWT
+* Return access token
+* Return refresh token
+* Return user profile
+
+Validation
+
+* Invalid email
+* Invalid password
+* Locked account
+* Expired account
+* Disabled account
+
+---
+
+### Logout
+
+```
+POST /api/v1/auth/logout
+```
+
+Expected
+
+* Revoke session
+* Invalidate refresh token
+
+---
+
+### Refresh Token
+
+```
+POST /api/v1/auth/refresh
+```
+
+Expected
+
+* Generate new access token
+
+---
+
+# Authorization
+
+Every API must validate
+
+* JWT
+* User Role
+* Tenant ID
+* Branch ID
+
+Unauthorized requests must return
+
+```
+401 Unauthorized
+```
+
+Insufficient permissions
+
+```
+403 Forbidden
+```
+
+---
+
+# Dashboard APIs
+
+Endpoints
+
+```
+GET /dashboard
+```
+
+Return
+
+* Today's Orders
+* Revenue
+* Active Tables
+* Staff Count
+* Pending Orders
+* Completed Orders
+
+Validation
+
+* Correct tenant data
+* Correct branch filtering
+* Pagination if required
+
+---
+
+# Branch Management
+
+Endpoints
+
+```
+GET /branches
+
+GET /branches/:id
+
+POST /branches
+
+PUT /branches/:id
+
+DELETE /branches/:id
+```
+
+Validation
+
+* Unique branch name
+* Required fields
+* Soft delete
+* Tenant isolation
+
+---
+
+# Staff Management
+
+Endpoints
+
+```
+GET /staff
+
+GET /staff/:id
+
+POST /staff
+
+PUT /staff/:id
+
+DELETE /staff/:id
+```
+
+Fields
+
+* Name
+* Email
+* Role
+* Branch
+* Status
+
+Validation
+
+* Duplicate email
+* Invalid role
+* Branch exists
+* Tenant ownership
+
+---
+
+# Menu Categories
+
+Endpoints
+
+```
+GET /categories
+
+POST /categories
+
+PUT /categories/:id
+
+DELETE /categories/:id
+```
+
+Validation
+
+* Duplicate names
+* Display order
+* Tenant isolation
+
+---
+
+# Menu Items
+
+Endpoints
+
+```
+GET /menu-items
+
+GET /menu-items/:id
+
+POST /menu-items
+
+PUT /menu-items/:id
+
+DELETE /menu-items/:id
+```
+
+Validation
+
+* Category exists
+* Price > 0
+* Image URL
+* Preparation time
+* Availability
+
+---
+
+# Floor Management
+
+Endpoints
+
+```
+GET /floors
+
+POST /floors
+
+PUT /floors/:id
+
+DELETE /floors/:id
+```
+
+Validation
+
+* Duplicate names
+* Tenant isolation
+
+---
+
+# Table Management
+
+Endpoints
+
+```
+GET /tables
+
+POST /tables
+
+PUT /tables/:id
+
+DELETE /tables/:id
+```
+
+Validation
+
+* Table number unique
+* Capacity
+* QR generation
+* Branch ownership
+
+---
+
+# Tax Management
+
+Endpoints
+
+```
+GET /taxes
+
+POST /taxes
+
+PUT /taxes/:id
+
+DELETE /taxes/:id
+```
+
+Validation
+
+* Percentage range
+* Duplicate names
+* Active flag
+
+---
+
+# Discount Management
+
+Endpoints
+
+```
+GET /discounts
+
+POST /discounts
+
+PUT /discounts/:id
+
+DELETE /discounts/:id
+```
+
+Validation
+
+* Percentage
+* Date range
+* Active status
+
+---
+
+# Order Management
+
+Endpoints
+
+```
+GET /orders
+
+GET /orders/:id
+
+PUT /orders/:id/status
+```
+
+Validation
+
+* Tenant isolation
+* Branch filtering
+* Status transitions
+* Audit history
+
+---
+
+# Notification APIs
+
+Endpoints
+
+```
+GET /notifications
+
+POST /notifications/read
+```
+
+Validation
+
+* User ownership
+* Read status
+
+---
+
+# Settings APIs
+
+Endpoints
+
+```
+GET /settings
+
+PUT /settings
+```
+
+Validation
+
+* Required fields
+* Restaurant information
+* Business hours
+
+---
+
+# File Upload APIs
+
+Supported
+
+* Menu Images
+* Restaurant Logo
+* Branch Images
+
+Validation
+
+* File type
+* File size
+* Virus scan (if applicable)
+
+---
+
+# Database Validation
+
+Verify
+
+* Foreign Keys
+* Unique Constraints
+* Check Constraints
+* Indexes
+* Soft Deletes
+* Cascade Rules
+
+No orphan records should exist.
+
+---
+
+# Business Rules
+
+Backend must enforce
+
+* Tenant isolation
+* Branch isolation
+* Role permissions
+* Active account checks
+* Menu availability
+* Tax calculations
+* Discount calculations
+
+Business rules must never rely solely on frontend validation.
+
+---
+
+# API Validation
+
+Every endpoint validates
+
+* Required fields
+* Data types
+* String lengths
+* Enum values
+* UUIDs
+* Date formats
+
+Return
+
+```
+400 Bad Request
+```
+
+for invalid input.
+
+---
+
+# Error Handling
+
+Standard response
+
+```json
+{
+  "success": false,
+  "message": "...",
+  "errorCode": "...",
+  "timestamp": "...",
+  "requestId": "..."
+}
+```
+
+Handle
+
+* Validation errors
+* Database errors
+* Authentication errors
+* Authorization errors
+* Network errors
+* Unexpected exceptions
+
+---
+
+# Security
+
+Verify
+
+* JWT authentication
+* Password hashing
+* Rate limiting
+* SQL injection prevention
+* XSS protection
+* CORS
+* Helmet headers
+* Secure cookies
+* Input sanitization
+
+---
+
+# Audit Logging
+
+Track
+
+* Login
+* Logout
+* Staff creation
+* Menu updates
+* Price changes
+* Branch updates
+* Settings changes
+* Role changes
+* Order status changes
+
+Each log stores
+
+* User ID
+* Tenant ID
+* Branch ID
+* Timestamp
+* Action
+* Resource
+* Previous Value
+* New Value
+
+---
+
+# Realtime Events
+
+Backend publishes realtime events for
+
+* New Orders
+* Order Status Changes
+* Menu Updates
+* Table Updates
+* Staff Updates
+
+Validation
+
+* Correct tenant
+* Correct branch
+* No duplicate events
+
+---
+
+# Performance Requirements
+
+API Response
+
+```
+GET APIs
+<200 ms
+
+POST APIs
+<300 ms
+
+PUT APIs
+<300 ms
+
+DELETE APIs
+<300 ms
+```
+
+Dashboard
+
+```
+<2 seconds
+```
+
+Authentication
+
+```
+<1 second
+```
+
+Database Queries
+
+```
+<100 ms
+```
+
+---
+
+# Logging
+
+Every request logs
+
+* Request ID
+* User ID
+* Tenant ID
+* Endpoint
+* Method
+* Response Time
+* Status Code
+* Error Details
+
+---
+
+# Monitoring
+
+Track
+
+* API latency
+* Error rate
+* Database performance
+* Memory usage
+* CPU usage
+* Failed logins
+* Slow queries
+
+---
+
+# Acceptance Criteria
+
+The Admin Backend is considered production-ready when:
+
+* Authentication works correctly.
+* RBAC is enforced on every endpoint.
+* Tenant and branch isolation are verified.
+* All CRUD APIs pass validation.
+* Database integrity is maintained.
+* Realtime events function correctly.
+* Audit logs are generated.
+* Response times meet performance targets.
+* Security best practices are implemented.
+* No critical or high-severity backend defects remain.
+
+---
+
+# Out of Scope
+
+* Customer App APIs
+* POS APIs
+* Staff App APIs
+* KDS APIs
+* Payment Gateway
+* QR Ordering Flow
+
+---
+
+# Deliverables
+
+* Production-ready REST APIs
+* Secure authentication and authorization
+* Multi-tenant database support
+* Complete CRUD functionality
+* Business rule enforcement
+* Audit logging
+* Realtime event publishing
+* Performance optimized queries
+* Fully tested backend ready for pilot deployment

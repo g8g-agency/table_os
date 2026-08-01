@@ -12,9 +12,9 @@ import { createCode, invalidateCode } from './qr.admin.controller';
 const router: Router = Router({ mergeParams: true });
 
 // POST /api/v1/admin/qr/codes
-router.post('/codes', requireMinRole(ROLES.MANAGER), createCode);
+router.post('/codes', requireMinRole(ROLES.STAFF), createCode);
 
 // POST /api/v1/admin/qr/codes/:qrCodeId/invalidate
-router.post('/codes/:qrCodeId/invalidate', requireMinRole(ROLES.MANAGER), invalidateCode);
+router.post('/codes/:qrCodeId/invalidate', requireMinRole(ROLES.STAFF), invalidateCode);
 
 export { router as qrAdminRouter };

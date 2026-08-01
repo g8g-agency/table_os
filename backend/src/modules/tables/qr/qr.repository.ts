@@ -147,12 +147,17 @@ export async function createSession(payload: {
       branch_id: payload.branch_id,
       table_id: payload.table_id,
       qr_code_id: payload.qr_code_id,
-      nonce_id: payload.nonce_id,
       session_token: payload.session_token,
-      device_fingerprint: payload.device_fingerprint ?? null,
-      client_ip: payload.client_ip ?? null,
-      user_agent: payload.user_agent ?? null,
-      expires_at: payload.expires_at,
+      is_active: true,
+      started_at: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
+      session_data: {
+        expires_at: payload.expires_at,
+        nonce_id: payload.nonce_id,
+        device_fingerprints: payload.device_fingerprint ? [payload.device_fingerprint] : [],
+        client_ip: payload.client_ip ?? null,
+        user_agent: payload.user_agent ?? null,
+      }
     })
     .select()
     .single();
@@ -181,7 +186,7 @@ export async function findActiveSessionByTable(
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('table_id', tableId)
-    .eq('status', 'active')
+    .eq('is_active', true)
     .maybeSingle();
 
   if (error) throw new AppError('Failed to fetch active QR session', 500, ErrorCode.INTERNAL_SERVER_ERROR, true, { error });
@@ -191,12 +196,12 @@ export async function findActiveSessionByTable(
 export async function updateSessionStatus(
   tenantId: string,
   sessionId: string,
-  status: QrSessionStatus,
+  is_active: boolean,
   updatedFields: Record<string, unknown> = {},
 ): Promise<QrSession | null> {
   const { data, error } = await supabaseAdmin
     .from('guest_sessions')
-    .update({ status, ...updatedFields, updated_at: new Date().toISOString() })
+    .update({ is_active, ...updatedFields, updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
     .eq('id', sessionId)
     .select()

@@ -144,6 +144,14 @@ router.get('/:tableId/history', requireMinRole(ROLES.MANAGER), async (req: Reque
   } catch (err) { next(err); }
 });
 
+// POST /api/v1/admin/tables/:tableId/vacate
+router.post('/:tableId/vacate', requireMinRole(ROLES.STAFF), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await tableService.vacateTable(req.context.tenantId!, req.params.tableId as string, req.context.userId);
+    res.status(200).json({ success: true, message: 'Table vacated successfully.' });
+  } catch (err) { next(err); }
+});
+
 // POST /api/v1/admin/tables/:tableId/generate-qr
 router.post('/:tableId/generate-qr', requireMinRole(ROLES.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {

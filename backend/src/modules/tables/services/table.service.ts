@@ -6,6 +6,7 @@
 // ============================================================
 
 import { AppError } from '../../../shared/errors/AppError';
+import { supabaseAdmin } from '../../../config/supabase';
 import * as tableRepo from '../repositories/table.repository';
 import {
   buildTableQrUrl,
@@ -233,6 +234,37 @@ export async function getTableHistory(tenantId: string, tableId: string) {
   const table = await tableRepo.findTableById(tenantId, tableId);
   if (!table) throw new AppError('Table not found', 404, 'NOT_FOUND');
   return tableRepo.getTableStateHistory(tenantId, tableId);
+}
+
+export async function vacateTable(tenantId: string, tableId: string, actorId: string): Promise<void> {
+  const table = await tableRepo.findTableById(tenantId, tableId);
+  if (!table) throw new AppError('Table not found', 404, 'NOT_FOUND');
+
+  // 1. End all active guest sessions
+  await supabaseAdmin
+    .from('guest_sessions')
+    .update({ is_active: false, ended_at: new Date().toISOString() })
+    .eq('tenant_id', tenantId)
+    .eq('table_id', tableId)
+    .eq('is_active', true);
+
+  // 2. Resolve pending waiter calls
+  await supabaseAdmin
+    .from('waiter_calls')
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+    .eq('tenant_id', tenantId)
+    .eq('table_id', tableId)
+    .eq('status', 'pending');
+
+  // 3. Emit event to rebuild projection
+  const { TableLifecycleService } = await import('./table-lifecycle.service');
+  await TableLifecycleService.emitTableEvent({
+    tenantId,
+    tableId,
+    eventType: 'TABLE_FORCE_RESET',
+    actorId,
+    reason: 'Staff vacated table',
+  });
 }
 
 export async function rotateQrToken(tenantId: string, tableId: string, actorId: string): Promise<string> {

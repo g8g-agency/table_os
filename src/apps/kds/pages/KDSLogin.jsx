@@ -5,18 +5,240 @@ import { useRuntimeIdentityStore } from '../../../store/runtimeIdentityStore';
 import { useRuntimeAuthStore } from '../../../store/runtimeAuthStore';
 import { resolveApiBaseUrl } from '../../../lib/resolveApiBaseUrl';
 
+import {
+  UtensilsCrossed,
+  Zap,
+  Server,
+  Monitor,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  UserCheck,
+  ArrowRight,
+  MessageCircle,
+  Clock,
+  CheckCircle2,
+  RefreshCcw,
+  Delete
+} from "lucide-react";
+
+/**
+ * KDSLogin — Admin Device Registration screen
+ * tableos / Orderlyy KDS · React 19 + Tailwind CSS v4
+ */
+
+const BRAND = {
+  50: "#FDF1F2",
+  100: "#FBE1E3",
+  400: "#F0141C",
+  500: "#E30613",
+  600: "#DC0611",
+  700: "#B8030D",
+  800: "#8F020A",
+  ink: "#0B1220",
+};
+
+const NEW_ORDERS = [
+  { id: "#A128", items: ["2x Margherita Pizza", "1x Caesar Salad"], time: "12 min" },
+  { id: "#A129", items: ["1x Chicken Burger", "1x French Fries"], time: "8 min" },
+  { id: "#A130", items: ["1x Pasta Alfredo", "1x Garlic Bread"], time: "10 min" },
+];
+
+const PREPARING = [
+  { id: "#A127", items: ["1x Grilled Salmon", "1x Veggies"], time: "8 min" },
+  { id: "#A126", items: ["2x Chicken Tacos", "1x Nachos"], time: "7 min" },
+];
+
+const READY = [
+  { id: "#A125", items: ["1x Beef Burger", "1x Onion Rings"] },
+  { id: "#A124", items: ["1x Margherita Pizza", "1x Coke"] },
+];
+
+function BarsIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <rect x="3" y="13" width="4" height="8" rx="1" fill="currentColor" />
+      <rect x="10" y="8" width="4" height="13" rx="1" fill="currentColor" />
+      <rect x="17" y="3" width="4" height="18" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SceneBackdrop() {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {/* Abstract bright backdrop mimicking the blurred kitchen/marble counter */}
+      <div
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(180deg, #FFFFFF 0%, #F5F5F5 45%, #E5E5E5 100%)" }}
+      />
+      <div
+        className="absolute bottom-0 left-0 w-full h-[140px]"
+        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(220,220,225,0.6) 100%)" }}
+      />
+      <div
+        className="absolute top-1/4 right-10 w-64 h-64 rounded-full"
+        style={{ background: "radial-gradient(circle, rgba(230,230,230,0.8) 0%, rgba(255,255,255,0) 70%)", filter: "blur(20px)" }}
+      />
+      <div
+        className="absolute bottom-10 -left-10 w-52 h-64 rounded-[40%]"
+        style={{ background: "rgba(0,0,0,0.03)", filter: "blur(20px)" }}
+      />
+    </div>
+  );
+}
+
+function TicketCard({ t, status }) {
+  const isPreparing = status === "preparing";
+  const isReady = status === "ready";
+  return (
+    <div
+      className={`bg-white shadow-sm border border-slate-200/80 ${
+        isPreparing ? "border-l-[3px] border-l-red-500" : ""
+      }`}
+      style={{ borderRadius: '6px', padding: '8px' }}
+    >
+      <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
+        <span className="text-[10px] font-bold text-slate-800">{t.id}</span>
+        <span className="text-slate-300 text-[11px] leading-none">›</span>
+      </div>
+      {t.items.map((it) => (
+        <p key={it} className="text-[9px] text-slate-500 leading-tight truncate">
+          {it}
+        </p>
+      ))}
+      {isReady ? (
+        <span 
+          className="inline-flex items-center bg-emerald-50 text-emerald-600 rounded-full"
+          style={{ marginTop: '8px', gap: '2px', padding: '2px 6px' }}
+        >
+          <CheckCircle2 style={{ width: '10px', height: '10px' }} />
+          <span className="text-[8px] font-semibold">Ready</span>
+        </span>
+      ) : (
+        <div
+          className={`flex items-center ${
+            isPreparing ? "text-red-500" : "text-amber-500"
+          }`}
+          style={{ marginTop: '8px', gap: '4px' }}
+        >
+          <Clock style={{ width: '10px', height: '10px' }} />
+          <span className="text-[8px] font-semibold">{t.time}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TicketColumn({ title, count, status, tickets }) {
+  return (
+    <div className="flex-1 min-w-0" style={{ padding: '0 10px' }}>
+      <div className="flex items-center justify-between px-[2px]" style={{ marginBottom: '10px' }}>
+        <span
+          className={`text-[10px] font-bold ${
+            status === "preparing" ? "text-red-500" : "text-slate-800"
+          }`}
+        >
+          {title}
+        </span>
+        <span className="text-[10px] font-semibold text-slate-400">{count}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {tickets.map((t) => (
+          <TicketCard key={t.id} t={t} status={status} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KDSTabletMockup() {
+  return (
+    <div className="relative mx-auto w-full max-w-md">
+      <div className="bg-slate-900 shadow-2xl relative z-10" style={{ padding: '10px', borderRadius: '20px', transform: "perspective(1000px) rotateX(4deg)", transformOrigin: "bottom center" }}>
+        <div className="bg-slate-100 overflow-hidden" style={{ borderRadius: '12px' }}>
+          <div className="flex divide-x divide-slate-200" style={{ padding: '12px 0' }}>
+            <TicketColumn title="New Orders" count={6} status="new" tickets={NEW_ORDERS} />
+            <TicketColumn title="Preparing" count={4} status="preparing" tickets={PREPARING} />
+            <TicketColumn title="Ready" count={3} status="ready" tickets={READY} />
+          </div>
+        </div>
+      </div>
+      {/* Tablet Stand */}
+      <div className="mx-auto bg-slate-800 relative z-0" style={{ height: '24px', width: '280px', borderRadius: '0 0 16px 16px', marginTop: '-12px' }} />
+      {/* Shadow */}
+      <div className="mx-auto bg-black/15 blur-md rounded-full mt-[4px]" style={{ height: '12px', width: '320px' }} />
+    </div>
+  );
+}
+
+function Feature({ icon: Icon, title, desc }) {
+  return (
+    <div className="flex items-start" style={{ gap: '16px' }}>
+      <div
+        className="shrink-0 flex items-center justify-center rounded-full"
+        style={{ backgroundColor: BRAND[50], width: '44px', height: '44px' }}
+      >
+        <Icon style={{ color: BRAND[500], width: '20px', height: '20px' }} strokeWidth={2.25} />
+      </div>
+      <div className="pt-[2px]">
+        <p className="font-bold text-[15px]" style={{ color: BRAND.ink }}>
+          {title}
+        </p>
+        <p className="text-slate-500 text-[14px] mt-[2px]">{desc}</p>
+      </div>
+    </div>
+  );
+}
+
+function PanelBackground() {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `linear-gradient(135deg, ${BRAND[500]} 0%, ${BRAND[700]} 100%)`,
+        }}
+      />
+      {/* Diagonal light sweeps */}
+      <div
+        className="absolute -top-1/4 -left-1/4 rotate-[-18deg]"
+        style={{
+          width: '140%', height: '70%',
+          background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 45%, transparent 75%)",
+        }}
+      />
+      <div
+        className="absolute top-1/3 -right-1/3 rounded-full blur-3xl"
+        style={{ width: '90%', height: '90%', background: "rgba(255,255,255,0.08)" }}
+      />
+      {/* Dot pattern top right */}
+      <div
+        className="absolute top-0 right-0"
+        style={{
+          width: '400px', height: '400px',
+          backgroundImage: "radial-gradient(rgba(255,255,255,0.3) 2px, transparent 2px)",
+          backgroundSize: "24px 24px",
+          maskImage: "radial-gradient(circle at top right, black 0%, black 45%, transparent 70%)",
+          WebkitMaskImage: "radial-gradient(circle at top right, black 0%, black 45%, transparent 70%)",
+        }}
+      />
+    </div>
+  );
+}
+
 export function KDSLogin() {
   const navigate = useNavigate();
   const { setBranchId, setStaffId, deviceId } = useRuntimeIdentityStore();
   const { setRuntimeSession } = useRuntimeAuthStore();
 
-  // Initialize mode based on localStorage ONCE when component mounts
   const [mode, setMode] = useState(() => {
     const registered = !!localStorage.getItem('kds_admin_access_token');
     const branchSelected = !!localStorage.getItem('kds_branch_id');
     
     if (registered && branchSelected) return 'employeeId';
-    if (registered && !branchSelected) return 'needsReset'; // Handle corrupted state
+    if (registered && !branchSelected) return 'needsReset';
     return 'deviceRegistration';
   });
 
@@ -26,6 +248,7 @@ export function KDSLogin() {
   // Device Registration State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [branches, setBranches] = useState([]);
 
   // Staff Login State
@@ -35,7 +258,6 @@ export function KDSLogin() {
 
   useEffect(() => {
     if (mode === 'needsReset') {
-      // If they refreshed before selecting a branch, force re-registration
       resetRegistration();
     }
   }, [mode]);
@@ -237,25 +459,10 @@ export function KDSLogin() {
 
       const { runtime_token } = exchangeData.data;
 
-      console.log('[KDSLogin] Runtime exchange response:', {
-        hasToken: !!runtime_token,
-        tokenPreview: runtime_token ? `${runtime_token.substring(0, 20)}...` : 'none'
-      });
-
-      // Decode token to see what's in it
-      try {
-        const decoded = JSON.parse(atob(runtime_token.split('.')[1]));
-        console.log('[KDSLogin] Decoded JWT:', decoded);
-      } catch (err) {
-        console.error('[KDSLogin] Failed to decode JWT:', err);
-      }
-
-      // setRuntimeSession will decode JWT automatically - no need for second param
       setRuntimeSession(runtime_token);
       setBranchId(savedBranchId);
       setStaffId(matchedStaff.id);
       
-      console.log('[KDSLogin] After setRuntimeSession, auth store:', useRuntimeAuthStore.getState());
       localStorage.setItem('kds_staff_name', `${matchedStaff.first_name || ''} ${matchedStaff.last_name || ''}`.trim());
       localStorage.setItem('kds_staff_role', matchedStaff.role || 'Kitchen Staff');
       
@@ -294,237 +501,234 @@ export function KDSLogin() {
     }
   }, [pin]);
 
+  const inputBase = "w-full border border-slate-200 bg-white text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition shadow-sm";
+
   if (mode === 'loading' || mode === 'needsReset') {
     return (
-      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-[#e31e24] border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen w-full bg-white flex items-center justify-center">
+        <div className="w-[48px] h-[48px] border-[4px] border-t-transparent rounded-full animate-spin" style={{ borderColor: `${BRAND[500]} transparent transparent transparent` }} />
       </div>
     );
   }
 
   return (
-    <div 
-      className="min-h-screen w-full flex flex-col lg:flex-row bg-white text-[#191c1d]" 
-      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-    >
-      <style>{`
-        .kds-glass-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(225, 227, 228, 0.7);
-            box-shadow: 0 4px 24 rgba(0, 0, 0, 0.03);
-        }
-      `}</style>
-
-      {/* Left Column: Welcome Showcase */}
-      <div className="w-full lg:w-1/2 bg-[#f8f9fa] border-r border-[#edeeef] flex flex-col p-6 sm:p-8 lg:p-10 min-h-[50vh] lg:min-h-screen">
-        {/* Top Branding logo */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 bg-[#e31e24] rounded-lg flex items-center justify-center text-white shadow-sm">
-            <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>point_of_sale</span>
+    <div className="min-h-screen w-full flex flex-row bg-white font-sans">
+      
+      {/* LEFT — brand / marketing panel */}
+      <div className="w-1/2 flex flex-col bg-white overflow-hidden relative">
+        <div className="relative z-10 flex-shrink-0" style={{ padding: '56px 64px 0' }}>
+          <div className="flex items-center" style={{ gap: '12px' }}>
+            <UtensilsCrossed style={{ width: '32px', height: '32px', color: BRAND[500] }} strokeWidth={2.5} />
+            <span className="text-[28px] font-bold tracking-tight" style={{ color: BRAND.ink }}>
+              Orderlyy <span style={{ color: BRAND[500] }}>KDS</span>
+            </span>
           </div>
-          <span className="text-[15px] font-bold tracking-tight text-[#191c1d]">Orderlyy KDS</span>
-        </div>
 
-        {/* Title text - positioned near top */}
-        <div className="text-center mt-2 space-y-2">
-          <h1 className="text-xl sm:text-2xl lg:text-[1.65rem] font-black leading-tight tracking-tight text-[#1a1a1a]">
-            Welcome to Orderlyy KDS – <br/>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#e31e24] to-[#ff4b4b]">Your Smart Kitchen Companion</span>
+          <h1
+            className="text-[44px] leading-[1.1] font-extrabold tracking-tight"
+            style={{ marginTop: '28px', color: BRAND.ink }}
+          >
+            Welcome to
+            <br />
+            <span style={{ color: BRAND[500] }}>Orderlyy KDS</span>
           </h1>
-          
-          <p className="text-xs sm:text-sm text-[#5d5e61] font-medium leading-relaxed max-w-sm mx-auto">
-            Cook faster, prep smarter, and deliver exceptional culinary experiences.
-          </p>
-        </div>
+          <div className="rounded-full" style={{ marginTop: '20px', height: '4px', width: '56px', backgroundColor: BRAND[500] }} />
 
-        {/* Device Mockup Image - centered in remaining space */}
-        <div className="flex-1 flex items-center justify-center py-4">
-          <div className="w-full max-w-md relative">
-            <div className="absolute inset-0 bg-[#e31e24]/5 blur-[60px] rounded-full z-0"></div>
-            <img 
-              src="/device-mockup.png" 
-              alt="Orderlyy Device Mockup" 
-              className="w-full h-auto max-h-[45vh] object-contain relative z-10 drop-shadow-2xl transition-transform duration-700 hover:scale-[1.02]"
-            />
+          <p className="text-slate-500 text-[15px] leading-relaxed max-w-md" style={{ marginTop: '24px' }}>
+            Your smart kitchen companion. Streamline your kitchen operations, track tickets in real-time, and ensure perfect order execution every time.
+          </p>
+
+          <div style={{ marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+            <Feature icon={Zap} title="Real-time Updates" desc="Instant ticket updates and status changes" />
+            <Feature icon={Server} title="Smart Organization" desc="Organize orders efficiently by priority" />
+            <Feature icon={BarsIcon} title="Better Performance" desc="Improve kitchen productivity and accuracy" />
           </div>
         </div>
 
-        {/* Features list/grid (Compact) - near bottom */}
-        <div className="mt-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 lg:gap-3">
-            <div className="kds-glass-card rounded-lg p-2.5 flex flex-col items-center text-center gap-1.5 transition-all duration-300">
-              <span className="material-symbols-outlined text-[#e31e24] text-lg">receipt_long</span>
-              <span className="text-[11px] font-bold text-[#191c1d]">Tickets</span>
-            </div>
-            <div className="kds-glass-card rounded-lg p-2.5 flex flex-col items-center text-center gap-1.5 transition-all duration-300">
-              <span className="material-symbols-outlined text-[#e31e24] text-lg">alt_route</span>
-              <span className="text-[11px] font-bold text-[#191c1d]">Routing</span>
-            </div>
-            <div className="kds-glass-card rounded-lg p-2.5 flex flex-col items-center text-center gap-1.5 transition-all duration-300">
-              <span className="material-symbols-outlined text-[#e31e24] text-lg">timer</span>
-              <span className="text-[11px] font-bold text-[#191c1d]">Timers</span>
-            </div>
-            <div className="kds-glass-card rounded-lg p-2.5 flex flex-col items-center text-center gap-1.5 transition-all duration-300">
-              <span className="material-symbols-outlined text-[#e31e24] text-lg">history</span>
-              <span className="text-[11px] font-bold text-[#191c1d]">Recalls</span>
-            </div>
-            <div className="kds-glass-card rounded-lg p-2.5 flex flex-col items-center text-center gap-1.5 transition-all duration-300 col-span-2 sm:col-span-1">
-              <span className="material-symbols-outlined text-[#e31e24] text-lg">visibility</span>
-              <span className="text-[11px] font-bold text-[#191c1d]">Expedite</span>
-            </div>
+        {/* Mockup area at bottom */}
+        <div className="relative flex-1 flex flex-col justify-end" style={{ marginTop: '24px', minHeight: '300px' }}>
+          <SceneBackdrop />
+          <div className="relative z-10" style={{ padding: '0 64px 40px' }}>
+            <KDSTabletMockup />
           </div>
         </div>
       </div>
 
-      {/* Right Column: Interactive Gate */}
-      <div className="w-full lg:w-1/2 bg-[#e31e24] flex flex-col justify-center items-center p-6 sm:p-10 lg:p-12 min-h-[50vh] lg:min-h-screen relative overflow-hidden">
-        {/* Subtle decorative shapes in red background */}
-        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-[#ba0013]/30 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-[#ffdad6]/10 rounded-full blur-[100px] pointer-events-none" />
+      {/* RIGHT — auth panel */}
+      <div className="relative w-1/2 flex items-center justify-center overflow-y-auto" style={{ padding: '40px' }}>
+        <PanelBackground />
 
-        {/* Dynamic Card Container (White Box) */}
-        <div className="max-w-[420px] w-full bg-white rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] p-8 sm:p-10 relative z-10">
-          
-          {/* Card Header (Error and Title) */}
-          <div className="text-center mb-8 relative">
-            {/* Show Back arrow for PIN mode */}
-            {mode === 'pin' && (
-              <button 
-                onClick={() => { setError(null); setMatchedStaff(null); setMode('employeeId'); }} 
-                className="absolute -left-2 top-0 text-[#8c8d8f] hover:text-[#1a1a1a] hover:bg-gray-100 p-2 rounded-full transition-all"
-              >
-                <span className="material-symbols-outlined">arrow_back</span>
-              </button>
-            )}
-            
-            {mode === 'deviceRegistration' && (
-              <div className="flex justify-center mb-5">
-                <div className="w-14 h-14 bg-[#f0f2f5] rounded-full flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[#5d5e61] text-[26px]">devices</span>
+        {/* White Card matching reference image perfectly - INLINE PADDING FIXES MISSING GAPS */}
+        <div 
+          className="relative z-10 w-full max-w-[440px] bg-white shadow-2xl"
+          style={{ padding: '48px', borderRadius: '24px' }}
+        >
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-[14px] font-bold flex items-center" style={{ marginBottom: '24px', padding: '16px', borderRadius: '10px', gap: '12px' }}>
+              {error}
+            </div>
+          )}
+
+          {mode === 'deviceRegistration' && (
+            <>
+              <div className="flex flex-col items-center text-center">
+                <div className="rounded-full flex items-center justify-center bg-red-50/70" style={{ width: '88px', height: '88px' }}>
+                  <div className="bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100" style={{ width: '64px', height: '64px' }}>
+                    <Monitor style={{ width: '28px', height: '28px', color: BRAND[700] }} strokeWidth={2} />
+                  </div>
                 </div>
+                <h2 className="font-bold" style={{ marginTop: '24px', fontSize: '22px', color: BRAND.ink }}>
+                  Admin Device Registration
+                </h2>
+                <p className="text-slate-500" style={{ marginTop: '8px', fontSize: '14px' }}>
+                  Authorize this terminal for kitchen use.
+                </p>
               </div>
-            )}
-            <h2 className="text-[24px] sm:text-[26px] font-bold text-[#191c1d] tracking-tight">
-              {mode === 'deviceRegistration' && 'Admin Device Registration'}
-              {mode === 'branchSelection' && 'Select Branch'}
-              {mode === 'employeeId' && 'Staff Login'}
-              {mode === 'pin' && 'Enter PIN'}
-            </h2>
-            
-            <p className="text-[14px] text-[#5d5e61] mt-2">
-              {mode === 'deviceRegistration' && "Register this terminal to your restaurant's kitchen network."}
-              {mode === 'branchSelection' && 'Assign this device to a default kitchen branch.'}
-              {mode === 'employeeId' && 'Enter your unique staff ID to start shift.'}
-              {mode === 'pin' && 'Enter your 4-digit security PIN.'}
-            </p>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-[#e31e24] p-3.5 rounded-xl text-[13px] font-semibold mt-5 text-center flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">error</span>
-                {error}
-              </div>
-            )}
-          </div>
-
-          {/* Card Body */}
-          <div className="mt-2">
-            {/* Mode: Device Registration */}
-            {mode === 'deviceRegistration' && (
-              <form onSubmit={handleDeviceRegistration} className="space-y-4 text-left">
+              <form onSubmit={handleDeviceRegistration} style={{ marginTop: '36px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div>
-                  <label className="block text-[12px] font-bold text-[#191c1d] mb-1.5 ml-1">Admin Email</label>
+                  <label className="block text-[13px] font-bold" style={{ marginBottom: '8px', color: BRAND.ink }}>
+                    Admin Email
+                  </label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#8c8d8f]">
-                      <span className="material-symbols-outlined text-[20px]">mail</span>
-                    </div>
-                    <input 
-                      type="email" 
-                      required 
-                      value={email} 
-                      onChange={(e) => setEmail(e.target.value)} 
-                      className="w-full bg-white border border-[#e1e3e5] focus:border-[#e31e24] rounded-xl pl-12 pr-4 py-3.5 text-[14px] text-[#191c1d] focus:outline-none transition-colors placeholder-[#a0a1a3]" 
-                      placeholder="admin@restaurant.com" 
+                    <Mail className="absolute top-1/2 -translate-y-1/2 text-slate-400" style={{ left: '16px', width: '18px', height: '18px' }} />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="chef@restaurant.com"
+                      className={inputBase}
+                      style={{ height: '48px', borderRadius: '10px', paddingLeft: '44px', paddingRight: '16px' }}
                     />
                   </div>
                 </div>
+
                 <div>
-                  <label className="block text-[12px] font-bold text-[#191c1d] mb-1.5 ml-1">Password</label>
+                  <label className="block text-[13px] font-bold" style={{ marginBottom: '8px', color: BRAND.ink }}>
+                    Admin Password
+                  </label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#8c8d8f]">
-                      <span className="material-symbols-outlined text-[20px]">lock</span>
-                    </div>
-                    <input 
-                      type="password" 
-                      required 
-                      value={password} 
-                      onChange={(e) => setPassword(e.target.value)} 
-                      className="w-full bg-white border border-[#e1e3e5] focus:border-[#e31e24] rounded-xl pl-12 pr-4 py-3.5 text-[14px] text-[#191c1d] focus:outline-none transition-colors placeholder-[#a0a1a3] tracking-widest" 
-                      placeholder="••••••••" 
+                    <Lock className="absolute top-1/2 -translate-y-1/2 text-slate-400" style={{ left: '16px', width: '18px', height: '18px' }} />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className={inputBase}
+                      style={{ height: '48px', borderRadius: '10px', paddingLeft: '44px', paddingRight: '44px' }}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((s) => !s)}
+                      className="absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      style={{ right: '16px' }}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff style={{ width: '18px', height: '18px' }} /> : <Eye style={{ width: '18px', height: '18px' }} />}
+                    </button>
                   </div>
                 </div>
+
                 <div>
-                  <label className="block text-[12px] font-bold text-[#191c1d] mb-1.5 ml-1">Terminal ID</label>
+                  <label className="block text-[13px] font-bold" style={{ marginBottom: '8px', color: BRAND.ink }}>
+                    Terminal ID
+                  </label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#8c8d8f]/70">
-                      <span className="material-symbols-outlined text-[20px]">tag</span>
-                    </div>
-                    <input 
-                      type="text" 
+                    <Monitor className="absolute top-1/2 -translate-y-1/2 text-slate-400" style={{ left: '16px', width: '18px', height: '18px' }} />
+                    <input
+                      type="text"
                       readOnly
-                      value={`KDS-TER-${(deviceId || '9042').substring(0, 6).toUpperCase()}`}
-                      className="w-full bg-[#f3f4f6] border border-[#e1e3e5] rounded-xl pl-12 pr-4 py-3.5 text-[14px] font-semibold text-[#5d5e61] focus:outline-none cursor-not-allowed select-none" 
+                      value={`STA-${(deviceId || '01').substring(0, 2).toUpperCase()}`}
+                      className={inputBase}
+                      style={{ height: '48px', borderRadius: '10px', paddingLeft: '44px', paddingRight: '16px', backgroundColor: '#f8fafc', cursor: 'not-allowed' }}
                     />
                   </div>
-                </div>
-                <button 
-                  type="submit" 
-                  disabled={loading} 
-                  className="w-full bg-[#e31e24] hover:bg-[#ba0013] active:bg-[#a00010] disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-colors mt-8 text-[15px] flex items-center justify-center gap-2 shadow-sm"
-                >
-                  <span className="material-symbols-outlined text-[20px]">person_add</span>
-                  {loading ? 'Registering...' : 'Register Device'}
-                </button>
-                <div className="text-center pt-6">
-                  <p className="text-[13px] text-[#5d5e61]">
-                    Need help? <a href="#" className="font-bold text-[#e31e24] hover:underline">Contact IT Support</a>
+                  <p className="font-medium text-slate-400 text-right" style={{ marginTop: '6px', fontSize: '11px' }}>
+                    Identifier for routing tickets.
                   </p>
                 </div>
-              </form>
-            )}
 
-            {/* Mode: Branch Selection */}
-            {mode === 'branchSelection' && (
-              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full flex items-center justify-center font-semibold text-white shadow-md active:scale-[0.99] transition disabled:opacity-70"
+                  style={{
+                    marginTop: '12px',
+                    height: '48px',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                    gap: '8px',
+                    background: `linear-gradient(90deg, ${BRAND[500]}, ${BRAND[700]})`,
+                  }}
+                >
+                  <UserCheck style={{ width: '18px', height: '18px' }} />
+                  {loading ? "Registering…" : "Register Device"}
+                  {!loading && <ArrowRight style={{ width: '18px', height: '18px' }} />}
+                </button>
+              </form>
+            </>
+          )}
+
+          {mode === 'branchSelection' && (
+            <>
+              <div className="flex flex-col items-center text-center">
+                <div className="rounded-full flex items-center justify-center bg-red-50/70" style={{ width: '88px', height: '88px' }}>
+                  <div className="bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100" style={{ width: '64px', height: '64px' }}>
+                    <Server style={{ width: '28px', height: '28px', color: BRAND[700] }} strokeWidth={2} />
+                  </div>
+                </div>
+                <h2 className="font-bold" style={{ marginTop: '24px', fontSize: '22px', color: BRAND.ink }}>
+                  Select Branch
+                </h2>
+                <p className="text-slate-500" style={{ marginTop: '8px', fontSize: '14px' }}>
+                  Assign this device to a kitchen branch.
+                </p>
+              </div>
+              <div className="overflow-y-auto custom-scrollbar" style={{ marginTop: '36px', maxHeight: '380px', paddingRight: '8px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {branches.map(b => (
                   <button 
                     key={b.id} 
                     onClick={() => handleBranchSelection(b.id)} 
-                    className="w-full bg-white hover:bg-[#f8f9fa] border border-[#e1e3e5] hover:border-[#e31e24]/40 text-[#191c1d] font-bold py-4 px-5 rounded-xl transition-all flex items-center justify-between group shadow-sm text-[15px]"
+                    className="w-full flex items-center justify-between border border-slate-200 bg-white font-bold transition hover:border-slate-300 hover:bg-slate-50 shadow-sm"
+                    style={{ height: '56px', borderRadius: '10px', padding: '0 20px', fontSize: '15px', color: BRAND.ink }}
                   >
                     <span>{b.name}</span>
-                    <span className="material-symbols-outlined text-[#e31e24] transition-transform group-hover:translate-x-1 bg-[#e31e24]/5 p-1 rounded-full">chevron_right</span>
+                    <ArrowRight style={{ width: '18px', height: '18px' }} className="text-slate-400" />
                   </button>
                 ))}
-                {branches.length === 0 && (
-                  <p className="text-[#8c8d8f] text-center py-6 text-[14px]">No branches found for this account.</p>
-                )}
               </div>
-            )}
+            </>
+          )}
 
-            {/* Mode: Employee ID */}
-            {mode === 'employeeId' && (
-              <form onSubmit={handleEmployeeIdSubmit} className="space-y-6">
+          {mode === 'employeeId' && (
+            <>
+              <div className="flex flex-col items-center text-center">
+                <div className="rounded-full flex items-center justify-center bg-red-50/70" style={{ width: '88px', height: '88px' }}>
+                  <div className="bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100" style={{ width: '64px', height: '64px' }}>
+                    <UserCheck style={{ width: '28px', height: '28px', color: BRAND[700] }} strokeWidth={2} />
+                  </div>
+                </div>
+                <h2 className="font-bold" style={{ marginTop: '24px', fontSize: '22px', color: BRAND.ink }}>
+                  Staff Login
+                </h2>
+                <p className="text-slate-500" style={{ marginTop: '8px', fontSize: '14px' }}>
+                  Enter your unique staff ID to start shift.
+                </p>
+              </div>
+              <form onSubmit={handleEmployeeIdSubmit} style={{ marginTop: '36px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div>
-                  <label className="block text-[13px] font-bold text-[#191c1d] mb-2 text-center">Employee ID</label>
+                  <label className="block text-[13px] font-bold text-center" style={{ marginBottom: '8px', color: BRAND.ink }}>
+                    Employee ID
+                  </label>
                   <input 
                     type="text" 
                     required 
                     value={employeeId} 
                     onChange={(e) => setEmployeeId(e.target.value)} 
-                    className="w-full bg-white border border-[#e1e3e5] focus:border-[#e31e24] rounded-xl px-4 py-4 text-center text-xl font-bold tracking-wider text-[#191c1d] focus:outline-none transition-colors" 
+                    className="w-full border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition text-center font-bold tracking-widest shadow-sm"
+                    style={{ height: '52px', borderRadius: '10px', padding: '0 20px', fontSize: '20px', color: BRAND.ink }}
                     placeholder="Enter Staff ID" 
                     autoFocus 
                   />
@@ -532,47 +736,70 @@ export function KDSLogin() {
                 <button 
                   type="submit" 
                   disabled={loading}
-                  className="w-full bg-[#e31e24] hover:bg-[#ba0013] active:bg-[#a00010] disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-colors mt-8 text-[15px] shadow-sm"
+                  className="w-full flex items-center justify-center font-semibold text-white shadow-md active:scale-[0.99] transition disabled:opacity-70"
+                  style={{
+                    height: '52px', borderRadius: '10px', gap: '8px', fontSize: '15px',
+                    background: `linear-gradient(90deg, ${BRAND[500]}, ${BRAND[700]})`,
+                  }}
                 >
                   {loading ? 'Verifying...' : 'Continue'}
                 </button>
-                <div className="text-center mt-8 border-t border-[#f0f2f5] pt-6">
+                <div className="text-center" style={{ marginTop: '24px' }}>
                   <button
                     type="button"
                     onClick={() => { setError(null); resetRegistration(); }}
-                    className="text-[13px] font-bold text-[#5d5e61] hover:text-[#e31e24] transition-colors flex items-center justify-center gap-1.5 mx-auto"
+                    className="inline-flex items-center font-semibold text-slate-500 hover:text-slate-700"
+                    style={{ gap: '6px', fontSize: '14px' }}
                   >
-                    <span className="material-symbols-outlined text-[18px]">restart_alt</span>
-                    Re-register this device
+                    <RefreshCcw style={{ width: '14px', height: '14px' }} />
+                    Re-register device
                   </button>
                 </div>
               </form>
-            )}
+            </>
+          )}
 
-            {/* Mode: PIN */}
-            {mode === 'pin' && (
-              <div className="space-y-6">
-                <div className="flex justify-center gap-4 py-2">
+          {mode === 'pin' && (
+            <>
+              <div className="flex flex-col items-center text-center relative">
+                <button 
+                  onClick={() => { setError(null); setMatchedStaff(null); setMode('employeeId'); }} 
+                  className="absolute left-0 top-0 text-slate-400 hover:text-slate-600"
+                  style={{ padding: '8px' }}
+                >
+                  <ArrowRight style={{ width: '20px', height: '20px' }} className="rotate-180" />
+                </button>
+                <h2 className="font-bold" style={{ marginTop: '8px', fontSize: '22px', color: BRAND.ink }}>
+                  Enter PIN
+                </h2>
+                <p className="text-slate-500" style={{ marginTop: '8px', fontSize: '14px' }}>
+                  Enter your 4-digit security PIN.
+                </p>
+              </div>
+              <div style={{ marginTop: '32px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+                <div className="flex justify-center" style={{ gap: '20px', padding: '8px 0' }}>
                   {[...Array(4)].map((_, i) => (
                     <div 
                       key={i} 
-                      className={`w-3.5 h-3.5 rounded-full transition-all duration-200 ${i < pin.length ? 'bg-[#e31e24] scale-110' : 'bg-[#edeeef]'}`} 
+                      className={`transition-all duration-200 ${i < pin.length ? 'scale-110 shadow-md' : 'bg-slate-200'}`}
+                      style={{ width: '14px', height: '14px', borderRadius: '50%', ...(i < pin.length ? { backgroundColor: BRAND[500] } : {}) }}
                     />
                   ))}
                 </div>
                 
                 {loading && (
-                  <p className="text-center text-xs font-semibold text-[#e31e24] animate-pulse">
+                  <p className="text-center font-bold animate-pulse" style={{ fontSize: '13px', color: BRAND[500] }}>
                     Authenticating PIN...
                   </p>
                 )}
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3" style={{ gap: '12px' }}>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
                     <button 
                       key={num} 
                       onClick={() => handleNumpadClick(num.toString())} 
-                      className="bg-[#f8f9fa] hover:bg-[#edeeef] active:scale-95 text-[#191c1d] text-xl font-bold h-12 sm:h-14 rounded-xl transition-all shadow-sm border border-[#edeeef]/60"
+                      className="bg-white hover:bg-slate-50 active:scale-95 font-bold transition-all border border-slate-200 shadow-sm"
+                      style={{ height: '64px', borderRadius: '12px', fontSize: '22px', color: BRAND.ink }}
                     >
                       {num}
                     </button>
@@ -580,26 +807,46 @@ export function KDSLogin() {
                   <div />
                   <button 
                     onClick={() => handleNumpadClick('0')} 
-                    className="bg-[#f8f9fa] hover:bg-[#edeeef] active:scale-95 text-[#191c1d] text-xl font-bold h-12 sm:h-14 rounded-xl transition-all shadow-sm border border-[#edeeef]/60"
+                    className="bg-white hover:bg-slate-50 active:scale-95 font-bold transition-all border border-slate-200 shadow-sm"
+                    style={{ height: '64px', borderRadius: '12px', fontSize: '22px', color: BRAND.ink }}
                   >
                     0
                   </button>
                   <button 
                     onClick={handleNumpadDelete} 
-                    className="bg-[#f8f9fa] hover:bg-[#edeeef] active:scale-95 text-[#5d5e61] flex items-center justify-center h-12 sm:h-14 rounded-xl transition-all shadow-sm border border-[#edeeef]/60"
+                    className="bg-white hover:bg-slate-50 active:scale-95 flex items-center justify-center transition-all border border-slate-200 shadow-sm"
+                    style={{ height: '64px', borderRadius: '12px' }}
                   >
-                    <span className="material-symbols-outlined text-xl">backspace</span>
+                    <Delete style={{ width: '20px', height: '20px' }} className="text-slate-500" />
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
+            </>
+          )}
 
-        {/* Micro footer under card */}
-        <p className="text-[11px] text-white/60 absolute bottom-6 z-10 text-center">
-          Orderlyy KDS Terminal • One system for all your kitchen needs.
-        </p>
+          {mode === 'deviceRegistration' && (
+            <>
+              <div className="flex items-center" style={{ marginTop: '32px', gap: '16px' }}>
+                <div className="flex-1 bg-slate-200" style={{ height: '1px' }} />
+                <span className="font-medium text-slate-400" style={{ fontSize: '12px' }}>or</span>
+                <div className="flex-1 bg-slate-200" style={{ height: '1px' }} />
+              </div>
+
+              <div className="text-center" style={{ marginTop: '24px' }}>
+                <p className="text-slate-500 font-medium" style={{ fontSize: '13px' }}>Need help registering?</p>
+                <button
+                  type="button"
+                  className="inline-flex items-center font-bold hover:opacity-80 transition-opacity"
+                  style={{ marginTop: '4px', gap: '6px', fontSize: '14px', color: BRAND[600] }}
+                >
+                  <MessageCircle style={{ width: '16px', height: '16px' }} />
+                  Contact Support
+                  <ArrowRight style={{ width: '14px', height: '14px' }} />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

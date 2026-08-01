@@ -25,6 +25,7 @@ import { settingsRouter } from './modules/settings/settings.router';
 import { publicTenantRouter } from './modules/tenants/public-tenant.router';
 import { adminRouter } from './modules/admin/admin.router';
 import { publicQrRouter } from './modules/tables/qr/table-qr.router';
+import { qrRouter } from './modules/tables/qr/qr.router';
 import { cartRouter } from './modules/cart/cart.router';
 import { ordersRouter } from './modules/orders/orders.router';
 import { kitchenRouter } from './modules/kitchen/kitchen.router';
@@ -205,6 +206,7 @@ export function createApp(): express.Application {
 
   // ─── Public QR Runtime API (no auth required, rate limited) ──────────
   app.use('/api/v1/public/table', publicQrRouter);
+  app.use('/api/v1/qr', qrRouter);
 
   // ─── Public Cart API (requires QR session token) ────────────
   app.use('/api/v1/cart', cartRouter);

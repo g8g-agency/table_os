@@ -64,12 +64,27 @@ export function requireMutationEnvelope() {
 
       // 1. Governance checks
       const contextTenantId = req.headers['x-tenant-id'] as string || req.qrSession?.tenantId || req.context?.tenantId;
+      
+      const debugLogContext = (reason: string) => {
+        console.error(`[403 DEBUG] Validation Failed: ${reason}`);
+        console.error(` - req.context?.tenantId:`, req.context?.tenantId);
+        console.error(` - req.headers['x-tenant-id']:`, req.headers['x-tenant-id']);
+        console.error(` - mutationEnvelope.tenant_id:`, envelope.tenant_id);
+        console.error(` - req.context?.branchIds:`, req.context?.branchIds);
+        console.error(` - mutationEnvelope.branch_id:`, envelope.branch_id);
+        console.error(` - req.qrSession?.id (sessionId):`, req.qrSession?.id);
+        console.error(` - mutationEnvelope.session_id:`, envelope.session_id);
+        console.error(` - req.context?.role (user.role):`, req.context?.role);
+      };
+
       if (envelope.tenant_id && contextTenantId && contextTenantId !== envelope.tenant_id) {
-        throw new AppError('Tenant context mismatch in mutation envelope', 403, ErrorCode.FORBIDDEN);
+        debugLogContext('tenant mismatch');
+        throw new AppError('Tenant context mismatch in mutation envelope', 406, ErrorCode.FORBIDDEN);
       }
 
       if (envelope.session_id && req.qrSession && req.qrSession.id !== envelope.session_id) {
-        throw new AppError('Session context mismatch in mutation envelope', 403, ErrorCode.FORBIDDEN);
+        debugLogContext('session mismatch');
+        throw new AppError('Session context mismatch in mutation envelope', 407, ErrorCode.FORBIDDEN);
       }
 
       // Hash the payload for audit logs

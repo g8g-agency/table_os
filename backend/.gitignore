@@ -7,3 +7,5 @@ pnpm-debug.log*
 mock_tables_db.json
 mock_menu_db.json
 
+
+testsprite_tests\tmp\config.json

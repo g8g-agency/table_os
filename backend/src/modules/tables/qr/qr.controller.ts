@@ -27,7 +27,7 @@ export async function validateSession(req: Request, res: Response, next: NextFun
         session_id: session.id,
         branch_id: session.branch_id,
         table_id: session.table_id,
-        status: session.status,
+        is_active: session.is_active,
         expires_at: session.expires_at,
       },
     });

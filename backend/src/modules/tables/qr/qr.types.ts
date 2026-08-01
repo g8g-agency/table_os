@@ -37,7 +37,7 @@ export interface QrSession {
   qr_code_id: string;
   nonce_id: string;
   session_token: string;
-  status: QrSessionStatus;
+  is_active: boolean;
   device_fingerprint: string | null;
   client_ip: string | null;
   user_agent: string | null;

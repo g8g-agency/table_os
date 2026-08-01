@@ -1,0 +1,22 @@
+[
+  {
+    "id": "TC001",
+    "title": "postapiauthloginwithvalidcredentials",
+    "description": "Test POST /api/auth/login with valid email and password to verify successful authentication and receipt of JWT token with status 200."
+  },
+  {
+    "id": "TC002",
+    "title": "postapiauthloginwithinvalidcredentials",
+    "description": "Test POST /api/auth/login with invalid email or password to verify response with 400 Bad Request or 401 Unauthorized and appropriate error details."
+  },
+  {
+    "id": "TC003",
+    "title": "getapiadmindashboardwithvalidjwtandauthorizedrole",
+    "description": "Test GET /api/admin/dashboard with a valid JWT token and authorized user role to verify successful retrieval of dashboard data with status 200."
+  },
+  {
+    "id": "TC004",
+    "title": "getapiadmindashboardwithoutjwtortokenwithinsufficientpermissions",
+    "description": "Test GET /api/admin/dashboard without JWT token or with a token having insufficient permissions to verify response with 401 Unauthorized or 403 Forbidden."
+  }
+]

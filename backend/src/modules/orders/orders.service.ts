@@ -7,6 +7,7 @@
 
 import { AppError, NotFoundError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
+import * as Sentry from '@sentry/node';
 import * as cartRepo from '../cart/cart.repository';
 import * as ordersRepo from './orders.repository';
 import { createOrderSnapshot } from '../snapshot/order-snapshot.service';
@@ -443,26 +444,51 @@ export async function transitionOrderStatus(params: {
     });
   }
   
-  // 4.6. Deactivate Guest Session immediately upon payment completion to vacant the table
-  if (targetStatus === 'completed') {
-    try {
-      if (order.session_id) {
-        await supabaseAdmin
-          .from('guest_sessions')
-          .update({
-            is_active: false,
-            ended_at: new Date().toISOString(),
-            resolved_at: new Date().toISOString(),
-            closed_reason: 'completed',
-          })
-          .eq('id', order.session_id)
-          .eq('tenant_id', tenantId);
-      }
+  // 4.6. Deactivate Guest Session immediately upon terminal transition to vacate the table
+  const terminalStates = ['completed', 'cancelled', 'voided'];
+  if (terminalStates.includes(targetStatus)) {
+    // We execute this synchronously. Do NOT swallow errors.
+    if (order.session_id) {
+      const { error: sessionError } = await supabaseAdmin
+        .from('guest_sessions')
+        .update({
+          is_active: false,
+          ended_at: new Date().toISOString(),
+          resolved_at: new Date().toISOString(),
+          closed_reason: targetStatus,
+        })
+        .eq('id', order.session_id)
+        .eq('tenant_id', tenantId);
         
-      // Rebuild projection so table state updates to FREE/Vacant immediately
-      await rebuildTableProjection(supabaseAdmin, tenantId, order.table_id);
-    } catch (err: any) {
-      logger.error({ error: err.message, orderId }, '[OrderService] Non-fatal: Failed to deactivate guest session / rebuild table projection on completion');
+      if (sessionError) {
+        logger.error({ error: sessionError, orderId }, '[OrderService] FATAL: Failed to deactivate guest session');
+        throw new AppError('Failed to close guest session during terminal transition.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      }
+    }
+      
+    // Rebuild projection so table state updates to FREE/Vacant immediately
+    const projection = await rebuildTableProjection(supabaseAdmin, tenantId, order.table_id);
+    
+    // Invariant Check 1: Guest session must be inactive
+    if (order.session_id) {
+      const { data: session } = await supabaseAdmin
+        .from('guest_sessions')
+        .select('is_active')
+        .eq('id', order.session_id)
+        .single();
+        
+      if (session && session.is_active) {
+        logger.error({ orderId, sessionId: order.session_id }, '[OrderService] INVARIANT FAILED: Guest session remains active after closure attempt.');
+        if (Sentry) Sentry.captureException(new Error(`Guest session ${order.session_id} remains active after terminal order transition for order ${orderId}`));
+        throw new AppError('Data inconsistency: Failed to close active session.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      }
+    }
+    
+    // Invariant Check 2: Table Projection should not be ACTIVE_GUESTS
+    if (projection && projection.runtime_state === 'ACTIVE_GUESTS') {
+      logger.error({ orderId, tableId: order.table_id, projection }, '[OrderService] INVARIANT FAILED: Table projection still ACTIVE_GUESTS after terminal transition.');
+      if (Sentry) Sentry.captureException(new Error(`Table projection ${order.table_id} is still ACTIVE_GUESTS after terminal order transition for order ${orderId}`));
+      throw new AppError('Data inconsistency: Table occupancy did not clear.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
   }
 

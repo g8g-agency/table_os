@@ -49,9 +49,16 @@ export async function createQrCode(
     throw new AppError('Table does not belong to the specified branch', 403, ErrorCode.FORBIDDEN);
   }
 
-  // const existing = await qrRepo.findActiveQrCodeByTable(tenantId, dto.table_id);
-  // Note: We no longer auto-invalidate the old QR code.
-  // They will be left active to expire naturally, preventing in-progress diners from being booted.
+  const existing = await qrRepo.findActiveQrCodeByTable(tenantId, dto.table_id);
+  if (existing) {
+    // Return the existing active QR code to avoid the unique constraint violation in the DB.
+    // The DB still has a unique index on (table_id) WHERE is_active = true.
+    return {
+      qr_code_id: existing.id,
+      signed_payload: existing.signed_payload,
+      code_slug: existing.code_slug,
+    };
+  }
 
   const codeSlug = dto.code_slug ?? generateSecureToken(8).slice(0, 12);
   const qrCodeId = randomUUID();
@@ -149,8 +156,8 @@ export async function resolveQrSession(
         expires_at: existingSession.expires_at,
       };
     } else {
-      // Deactivate the expired session so a new one is created below
-      await qrRepo.updateSessionStatus(existingSession.tenant_id, existingSession.id, 'expired', { expires_at: existingSession.expires_at });
+      // Deactivate the expired session so a new session is created below
+      await qrRepo.updateSessionStatus(existingSession.tenant_id, existingSession.id, false, { expires_at: existingSession.expires_at });
     }
   }
 
@@ -204,8 +211,8 @@ export async function validateSessionToken(sessionToken: string): Promise<QrSess
   const session = await qrRepo.findSessionByToken(sessionToken);
   if (!session) throw new AppError('Session not found', 404, ErrorCode.NOT_FOUND);
 
-  if (session.status !== 'active') {
-    throw new AppError('Session is not active', 403, ErrorCode.FORBIDDEN);
+  if (!session.is_active) {
+    throw new AppError('Session is not active', 409, ErrorCode.FORBIDDEN);
   }
 
   // Expiration check removed; rely on is_active.
