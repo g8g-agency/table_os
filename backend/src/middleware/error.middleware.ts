@@ -57,11 +57,11 @@ export const errorMiddleware = (
       else if (userRole === 'admin' || userRole === 'superadmin') authType = 'Admin';
       else if (staffId || userId) authType = 'Staff';
 
-      if (tenantId) scope.setTag('tenant_id', tenantId);
-      if (branchId) scope.setTag('branch_id', branchId);
-      if (staffId) scope.setTag('staff_id', staffId);
-      if (userRole) scope.setTag('user_role', userRole);
-      if (requestId) scope.setTag('request_id', requestId);
+      if (tenantId) scope.setTag('tenant_id', String(tenantId));
+      if (branchId) scope.setTag('branch_id', String(branchId));
+      if (staffId) scope.setTag('staff_id', String(staffId));
+      if (userRole) scope.setTag('user_role', String(userRole));
+      if (requestId) scope.setTag('request_id', String(requestId));
       scope.setTag('route', req.route?.path || req.path);
 
       scope.setContext('Request', {
@@ -69,7 +69,7 @@ export const errorMiddleware = (
         url: req.originalUrl,
         ip: req.ip,
         user_agent: req.headers['user-agent'],
-        request_id: requestId,
+        request_id: requestId ? String(requestId) : undefined,
       });
 
       if (tenantId || branchId) {

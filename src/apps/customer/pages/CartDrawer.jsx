@@ -70,100 +70,149 @@ export default function CartDrawer({ open, onClose }) {
     if (cartItems.length === 0 || isPlacing) return
     setIsPlacing(true)
     setErrorMsg(null)
+
     try {
       const { tenantId, branchId, tableId, sessionToken } = getQrSession()
       const resolvedTableNum = resolveTableNum()
       const guestSession = JSON.parse(localStorage.getItem('customerSession') || '{}')
 
-      const items = cartItems.map(item => ({
-        menu_item_id: item.id,
-        quantity: item.qty,
-        item_notes: '',
-        modifiers: item.modifiers || [],
-      }))
-
-      const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
-
       const qrToken = sessionToken || ''
-      
       if (!qrToken) {
-        setErrorMsg('Your session has expired. Please scan the QR code on your table again.');
-        setIsPlacing(false);
-        return;
+        setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
+        setIsPlacing(false)
+        return
       }
 
-      console.log('--- RUNTIME DEBUG: Place Order Triggered ---');
-      console.log('1. sessionStorage(qr_session_token):', sessionStorage.getItem('qr_session_token'));
-      console.log('2. localStorage(orderlyy_qr_context):', localStorage.getItem('orderlyy_qr_context'));
-      console.log('3. resolved qrToken:', qrToken);
-      
-      const rawRes = await fetchPublicApi('/public/orders', {
-        method: 'POST',
-        headers: {
-          'idempotency-key': crypto.randomUUID(),
-          'x-qr-session-token': qrToken
-        },
-        body: JSON.stringify({
-          items,
-          order_notes: orderNotes
+      const qrHeaders = { 'x-qr-session-token': qrToken }
+
+      // ── Helper: build a MutationEnvelope ──────────────────────────────────
+      function buildEnvelope(mutationId, sequence, payload, extra = {}) {
+        return {
+          mutation_id: mutationId,
+          mutation_sequence: sequence,
+          runtime_version: 1,
+          client_timestamp: new Date().toISOString(),
+          idempotency_key: crypto.randomUUID().replace(/-/g, '_'),
+          payload,
+          ...extra,
+        }
+      }
+
+      // ── Step 1: GET the current cart (creates one if none exists) ─────────
+      const cartRes = await fetchPublicApi('/api/v1/cart', { headers: qrHeaders })
+      if (!cartRes.ok) {
+        const cartErr = await cartRes.json().catch(() => ({}))
+        if (cartRes.status === 401 || cartErr?.error?.code === 'UNAUTHORIZED') {
+          sessionStorage.removeItem('qr_session_token')
+          sessionStorage.removeItem('qr_session')
+          localStorage.removeItem('orderlyy_qr_context')
+          setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
+          setIsPlacing(false)
+          return
+        }
+        throw new Error(cartErr?.error?.message || 'Failed to load cart')
+      }
+      const cartBody = await cartRes.json()
+      const serverCart = cartBody.data?.cart || cartBody.data
+      const cartId = serverCart?.id
+      if (!cartId) throw new Error('Could not resolve cart ID from server')
+
+      let cartRevision = serverCart?.version_num ?? 0
+
+      // ── Step 2: Add each item to the server-side cart ─────────────────────
+      for (let i = 0; i < cartItems.length; i++) {
+        const ci = cartItems[i]
+        const envelope = buildEnvelope(
+          `cart_add_${ci.id}_${i}`,
+          i + 1,
+          {
+            menu_item_id: ci.id,
+            quantity: ci.qty,
+            modifiers: ci.modifiers || [],
+            item_notes: ci.note || '',
+          },
+          { expected_cart_revision: cartRevision }
+        )
+        const addRes = await fetchPublicApi('/api/v1/cart/items', {
+          method: 'POST',
+          headers: qrHeaders,
+          body: JSON.stringify(envelope),
         })
+        if (!addRes.ok) {
+          const addErr = await addRes.json().catch(() => ({}))
+          throw new Error(addErr?.error?.message || `Failed to add item ${ci.name} to cart`)
+        }
+        const addBody = await addRes.json()
+        cartRevision = addBody.mutation_ack?.server_cart_revision ?? cartRevision + 1
+      }
+
+      // ── Step 3: Checkout the cart ──────────────────────────────────────────
+      const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
+      const checkoutEnvelope = buildEnvelope(
+        `checkout_${cartId}`,
+        cartItems.length + 1,
+        {
+          cartId,
+          tableId: tableId || serverCart?.table_id,
+          orderNotes,
+          customerName: guestSession.name || 'Guest',
+        },
+        { expected_cart_revision: cartRevision }
+      )
+
+      const checkoutRes = await fetchPublicApi('/api/v1/orders/checkout', {
+        method: 'POST',
+        headers: qrHeaders,
+        body: JSON.stringify(checkoutEnvelope),
       })
 
-      const res = await rawRes.json()
+      const res = await checkoutRes.json()
+      console.log('[CartDrawer] checkout response:', JSON.stringify(res))
 
-      console.log('[CartDrawer] raw response:', JSON.stringify(res));
-
-      if (!rawRes.ok || res.success === false) {
-        // ── Session expired: clear stale token so re-scan works cleanly ──
+      if (!checkoutRes.ok || res.success === false) {
         if (
-          rawRes.status === 401 ||
+          checkoutRes.status === 401 ||
           res.error?.code === 'UNAUTHORIZED' ||
-          res.error?.message?.toLowerCase().includes('session expired') ||
-          res.error?.message?.toLowerCase().includes('guest session not found') ||
-          res.error?.message?.toLowerCase().includes('guest session is not active')
+          res.error?.message?.toLowerCase().includes('session expired')
         ) {
-          sessionStorage.removeItem('qr_session_token');
-          sessionStorage.removeItem('qr_session');
-          localStorage.removeItem('orderlyy_qr_context');
-          setErrorMsg('Your session has expired. Please scan the QR code on your table again.');
-          setIsPlacing(false);
-          return;
+          sessionStorage.removeItem('qr_session_token')
+          sessionStorage.removeItem('qr_session')
+          localStorage.removeItem('orderlyy_qr_context')
+          setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
+          setIsPlacing(false)
+          return
         }
-
         if (res.error?.code === 'CART_ALREADY_CHECKED_OUT' || res.error?.message?.includes('already checked out or locked')) {
           clear()
           onClose()
           navigate('/menu/orders')
           return
         }
-        const error = new Error(res.error?.message || 'Failed to place order.')
-        error.code = res.error?.code
-        throw error
+        throw new Error(res.error?.message || 'Failed to place order.')
       }
 
       if (res?.success === true) {
         clear()
         onClose()
-        const orderData = res?.order || res?.data?.order || res?.data || res;
-        const orderId = orderData?.id || res?.id;
+        const orderData = res?.data?.order || res?.data || res
+        const orderId = orderData?.id || res?.id
         navigate(orderId ? `/menu/confirmed/${orderId}` : '/menu/orders', {
           state: orderId ? {
             orderId,
             orderNumber: orderData?.order_number,
             tableId: orderData?.table_id,
             tableName: resolvedTableNum,
-            subtotal: subtotal,
+            subtotal,
             tax: 0,
             total: subtotal,
             items: cartItems,
           } : undefined
         })
-        return;
+        return
       }
 
     } catch (err) {
       console.error('[CartDrawer] placeOrder failed:', err)
-      // CART_ALREADY_CHECKED_OUT is now handled directly in the response parsing block above
       setErrorMsg(err.message || 'Could not place order. Please try again.')
     } finally {
       setIsPlacing(false)
@@ -171,6 +220,7 @@ export default function CartDrawer({ open, onClose }) {
   }
 
   return (
+
     <AnimatePresence>
       {open && (
         <>
