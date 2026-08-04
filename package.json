@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@sentry/react": "^10.66.0",
-    "@sentry/vite-plugin": "^5.4.0",
     "@supabase/supabase-js": "^2.101.1",
     "@tailwindcss/vite": "^4.2.2",
     "canvas-confetti": "^1.9.4",
@@ -29,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@sentry/vite-plugin": "^5.4.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

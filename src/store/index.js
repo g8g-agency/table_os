@@ -255,6 +255,15 @@ export const useMenuStore = create((set, get) => ({
   },
 }))
 
+// ─── PUBLIC MENU CACHE ────────────────────────────────────────────────────────
+// MenuHome writes here after fetching from /api/v1/public/menu/items
+// ItemDetail reads from here — no extra API call needed
+export const usePublicMenuStore = create((set, get) => ({
+  items: [],   // normalised items from MenuHome fetch
+  setItems: (items) => set({ items }),
+  getById: (id) => get().items.find(i => i.id === id) ?? null,
+}))
+
 export const useSessionStore = create((set) => ({
   session_id: localStorage.getItem('session_id') || null,
   name: localStorage.getItem('session_name') || '',

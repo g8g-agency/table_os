@@ -11,9 +11,6 @@ importers:
       '@sentry/react':
         specifier: ^10.66.0
         version: 10.66.0(react@19.2.7)
-      '@sentry/vite-plugin':
-        specifier: ^5.4.0
-        version: 5.4.0(rollup@4.62.2)
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.110.7
@@ -60,6 +57,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.4
         version: 9.39.5
+      '@sentry/vite-plugin':
+        specifier: ^5.4.0
+        version: 5.4.0(rollup@4.62.2)
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17

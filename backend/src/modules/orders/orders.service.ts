@@ -543,7 +543,7 @@ export async function transitionOrderStatus(params: {
   });
 
   // 6. Dispatch specific Realtime Events for Staff App
-  if (targetStatus === 'accepted' || targetStatus === 'ready' || targetStatus === 'preparing') {
+  if (targetStatus === 'accepted' || targetStatus === 'ready' || targetStatus === 'preparing' || targetStatus === 'cancelled') {
     let tableNumber = 'N/A';
     let assignedStaffId: string | null = null;
     let staffName = 'Unknown Staff';
@@ -597,6 +597,20 @@ export async function transitionOrderStatus(params: {
         acceptedByStaffId: userId || assignedStaffId || null,
         acceptedByStaffName: staffName,
         acceptedAt: new Date().toISOString(),
+        tenantId,
+        branchId: order.branch_id,
+        itemCount: alertItems.length,
+        totalAmountMinor,
+        items: alertItems,
+      };
+    } else if (targetStatus === 'cancelled') {
+      alertType = 'ORDER_CANCELLED';
+      alertPayload = {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        tableNumber,
+        reason: reason || 'Order rejected/cancelled',
+        cancelledAt: new Date().toISOString(),
         tenantId,
         branchId: order.branch_id,
         itemCount: alertItems.length,

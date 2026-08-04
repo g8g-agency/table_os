@@ -259,6 +259,53 @@ export default function OrderTracking() {
           </div>
         </div>
 
+        {/* 3.5. REJECTED / CANCELLED CARD */}
+        {['rejected', 'cancelled'].includes(orderStatus) && (
+          <div style={{
+            background: '#FEF2F2',
+            border: '1.5px solid #FCA5A5',
+            borderRadius: 16,
+            margin: '0 16px 16px',
+            padding: 20,
+            textAlign: 'center',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}>
+            <div style={{
+              width: 56, height: 56,
+              borderRadius: '50%',
+              background: '#FEE2E2',
+              color: '#DC2626',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 28,
+              margin: '0 auto 12px'
+            }}>✕</div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#991B1B', margin: '0 0 6px' }}>
+              Order Cancelled by Kitchen
+            </h3>
+            <p style={{ fontSize: 13, color: '#7F1D1D', margin: '0 0 16px', lineHeight: 1.5 }}>
+              {order?.cancellation_reason || 'Item is currently unavailable or kitchen cannot prepare this order.'}
+            </p>
+            <button
+              onClick={() => navigate('/menu/browse')}
+              style={{
+                background: '#DC2626',
+                color: 'white',
+                border: 'none',
+                borderRadius: 12,
+                padding: '12px 20px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                width: '100%'
+              }}
+            >
+              Return to Menu
+            </button>
+          </div>
+        )}
+
         {/* 4. VERTICAL STEPPER */}
         {!['rejected', 'cancelled'].includes(orderStatus) && (
           <div style={{ background: 'white', borderRadius: 16, margin: '0 16px 16px', padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
