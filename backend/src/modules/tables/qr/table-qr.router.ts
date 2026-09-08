@@ -64,8 +64,8 @@ router.get('/:token', async (req: Request, res: Response, next: NextFunction) =>
       return;
     }
 
-    // 2. Entropy / length validation
-    if (!publicToken || publicToken.length < 16) {
+    // 2. Entropy / length validation (allow >= 8 chars for custom tokens)
+    if (!publicToken || publicToken.length < 8) {
       res.status(400).json({ success: false, message: 'Invalid token format.' });
       return;
     }

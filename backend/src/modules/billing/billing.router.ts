@@ -12,8 +12,6 @@ import {
   settleIntent,
   settleBill,
   voidBill,
-  splitFractional,
-  splitItems,
   executeRefund,
   getTableProjection,
   getReconciliation,
@@ -34,8 +32,6 @@ router.post('/bills/aggregate', aggregateBill);
 router.get('/bills/:id', getBillDetails);
 router.post('/bills/:id/settle', settleBill);
 router.post('/bills/:id/void', voidBill);
-router.post('/bills/:id/split/fractional', splitFractional);
-router.post('/bills/:id/split/items', splitItems);
 router.post('/bills/:id/refund', executeRefund);
 
 // Payment Intents (idempotent, gateway checkpointing)

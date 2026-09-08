@@ -29,6 +29,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^4.0.1",
+    "libphonenumber-js": "^1.13.11",
     "pg": "^8.22.0",
     "pino": "^9.6.0",
     "pino-http": "^10.4.0",

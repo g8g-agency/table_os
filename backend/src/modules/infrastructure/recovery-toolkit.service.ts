@@ -226,7 +226,7 @@ export const RecoveryToolkitService = {
         // Check if there are bills marked paid but order status is stuck in pending/started
         const { data: driftBills, error: fetchErr } = await supabaseAdmin
           .from('bills')
-          .select('id, parent_bill_id, status')
+          .select('id, status')
           .eq('tenant_id', tenantId)
           .eq('branch_id', branchId)
           .eq('status', 'PAID');

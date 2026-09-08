@@ -135,3 +135,20 @@ export interface TableReservation {
   updated_at: string;
   deleted_at: string | null;
 }
+
+// ─── Table Session ─────────────────────────────────────────────
+
+export type TableSessionStatus = 'open' | 'payment_requested' | 'payment_processing' | 'closed';
+
+export interface TableSession {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  table_id: string;
+  status: TableSessionStatus;
+  opened_at: string;
+  payment_requested_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

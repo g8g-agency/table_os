@@ -133,14 +133,15 @@ const KDSBoard = () => {
     // Subscribe to OPERATIONAL_STREAM (new orders, order updates) from the WebSocket
     const unsubOps = useTransportStore.getState().subscribe('OPERATIONAL_STREAM', (envelope) => {
       const eventType = envelope?.event_type;
-      // Rebuild KDS when a new order lands or an order status changes
+      console.log('\n[KDSBoard] OPERATIONAL_STREAM EVENT:', eventType, envelope);
       if (eventType === 'order_update' || eventType === 'order_assigned') {
         triggerRebuild();
       }
     });
 
-    // Also subscribe to ORDER_ALERTS so KDS rebuilds when an order is accepted/prepared/ready
+    // Also subscribe to ORDER_ALERTS so KDS rebuilds when an order is accepted/prepared/ready/cancelled
     const unsubAlerts = useTransportStore.getState().subscribe('ORDER_ALERTS', (envelope) => {
+      console.log('\n[KDSBoard] ORDER_ALERTS EVENT:', envelope?.event_type, envelope);
       triggerRebuild();
     });
 
@@ -313,7 +314,7 @@ const KDSBoard = () => {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: '#E31E24', letterSpacing: '0.15em', textTransform: 'uppercase' }}>🔔 New Order!</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginTop: 2 }}>Table {alert.tableNum}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginTop: 2 }}>Table {alert.tableNum?.toString().replace(/^(table\s*|t\s*)/i, '').trim()}</div>
               <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 1 }}>#{String(alert.orderNum).toUpperCase()}</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

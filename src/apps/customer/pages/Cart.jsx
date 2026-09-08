@@ -1,207 +1,412 @@
-/* eslint-disable */
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
-import { menuItems } from '../../../mock/data'
-
-// Mock Data
-const DEMO_CART = [
-  { ...menuItems.find(m => m.id === 'm5'), qty: 1, modifier: 'Medium Well', note: '' },
-  { ...menuItems.find(m => m.id === 'm11'), qty: 2, modifier: '', note: 'Extra crispy please' },
-]
-const UPSELL = menuItems.filter(m => ['m13', 'm15'].includes(m.id))
+import { useCartStore, useSessionStore } from '../../../store/index'
+import { fetchPublicApi } from '../../../lib/apiClient'
+import { motion } from 'framer-motion'
+import { getQrSession, getCustomerSession } from '../utils/qrSession'
+import { useCartRecommendations } from '../hooks/useCartRecommendations'
+import { CustomerRecommendationService } from '../services/CustomerRecommendationService'
 
 export default function Cart() {
-  const navigate = useNavigate()
-  const [cart, setCart] = useState(DEMO_CART)
-  const [submitting, setSubmitting] = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
+  const navigate   = useNavigate()
+  const onClose    = () => navigate(-1)
+  const cartItems  = useCartStore(s => s.items)
+  const addItem    = useCartStore(s => s.addItem)
+  const updateQty  = useCartStore(s => s.updateQty)
+  const clear      = useCartStore(s => s.clear)
+  const [isPlacing, setIsPlacing] = useState(false)
+  const [note,      setNote]      = useState('')
+  const [errorMsg,  setErrorMsg]  = useState(null)
+  const [paymentMethod, setPaymentMethod] = useState('upi')
+  const { recommendations } = useCartRecommendations(cartItems)
 
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0)
+  const subtotal   = cartItems.reduce((a, i) => a + ((i.unit_price || i.price || 0) * i.qty), 0)
 
-  const change = (id, delta) =>
-    setCart(prev => prev.map(i => i.id === id ? { ...i, qty: Math.max(0, i.qty + delta) } : i).filter(i => i.qty > 0))
+  const resolveTableNum = () => {
+    const store = useSessionStore.getState()
+    const fromStore = store.table_num || store.tableNum || store.currentTable
+    if (fromStore && fromStore !== 'undefined' && fromStore !== 'null') return fromStore
 
-  const submitOrder = async () => {
-    if (cart.length === 0) return;
-    setSubmitting(true);
-    setErrorMsg('');
+    const fromUrl = new URLSearchParams(window.location.search).get('table')
+    if (fromUrl) return fromUrl
+
+    const fromLocal = localStorage.getItem('tableNum') || localStorage.getItem('table_num')
+    if (fromLocal && fromLocal !== 'undefined' && fromLocal !== 'null') return fromLocal
+
+    const fromSession = sessionStorage.getItem('tableNum') || sessionStorage.getItem('table_num')
+    if (fromSession && fromSession !== 'undefined' && fromSession !== 'null') return fromSession
+
+    return 'T03'
+  }
+
+  const handlePlaceOrder = async () => {
+    if (cartItems.length === 0 || isPlacing) return
+    setIsPlacing(true)
+    setErrorMsg(null)
+
     try {
-      // Import dependencies inline or they must be at the top
-      // Assuming they are at the top, but we'll use dynamic imports if not
-      const { fetchWithRuntime, submitMutation } = await import('../../../lib/apiClient');
-      const { getQrSession } = await import('../utils/qrSession');
-      
-      const session = getQrSession();
-      if (!session.tenantId || !session.tableId) {
-        throw new Error('Missing session information. Please scan the QR code again.');
+      const qrContext = getQrSession()
+      const { tableId, sessionToken, tenantId } = qrContext
+      const resolvedTableNum = resolveTableNum()
+      const guestSession = getCustomerSession(tenantId)
+
+      const qrToken = sessionToken || ''
+      if (!qrToken) {
+        setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
+        setIsPlacing(false)
+        return
       }
 
-      const items = cart.map(i => ({
-        menu_item_id: i.id,
-        quantity: i.qty,
-        item_notes: i.note,
-        // Map modifiers here if real data existed
-      }));
+      const qrHeaders = { 'x-qr-session-token': qrToken }
 
-      const res = await submitMutation('/api/v1/orders/direct', {
-        mutation_id: 'create_direct_order',
-        idempotency_key: crypto.randomUUID(),
-        payload: {
-          tableId: session.tableId,
-          items
+      function buildEnvelope(mutationId, sequence, payload, extra = {}) {
+        return {
+          mutation_id: mutationId,
+          mutation_sequence: sequence,
+          runtime_version: 1,
+          client_timestamp: new Date().toISOString(),
+          idempotency_key: crypto.randomUUID().replace(/-/g, '_'),
+          payload,
+          ...extra,
         }
-      });
-
-      if (!res.success) {
-        throw new Error(res.error?.message || 'Failed to place order.');
       }
 
-      // Order created successfully
-      setCart([]);
-      navigate(`/menu/confirmed/${res.data.order.id}`);
+      const cartRes = await fetchPublicApi('/api/v1/cart', { headers: qrHeaders })
+      if (!cartRes.ok) {
+        const cartErr = await cartRes.json().catch(() => ({}))
+        if (cartRes.status === 401 || cartErr?.error?.code === 'UNAUTHORIZED') {
+          sessionStorage.removeItem('qr_session_token')
+          sessionStorage.removeItem('qr_session')
+          localStorage.removeItem('orderlyy_qr_context')
+          setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
+          setIsPlacing(false)
+          return
+        }
+        throw new Error(cartErr?.error?.message || 'Failed to load cart')
+      }
+      const cartBody = await cartRes.json()
+      const serverCart = cartBody.data?.cart || cartBody.data
+      const cartId = serverCart?.id
+      if (!cartId) throw new Error('Could not resolve cart ID from server')
+
+      let cartRevision = serverCart?.version_num ?? 0
+
+      for (let i = 0; i < cartItems.length; i++) {
+        const ci = cartItems[i]
+        const envelope = buildEnvelope(
+          `cart_add_${ci.id}_${i}`,
+          i + 1,
+          {
+            menu_item_id: ci.id,
+            quantity: ci.qty,
+            modifiers: ci.modifiers || [],
+            item_notes: ci.note || '',
+          },
+          { expected_cart_revision: cartRevision }
+        )
+        const addRes = await fetchPublicApi('/api/v1/cart/items', {
+          method: 'POST',
+          headers: qrHeaders,
+          body: JSON.stringify(envelope),
+        })
+        if (!addRes.ok) {
+          const addErr = await addRes.json().catch(() => ({}))
+          throw new Error(addErr?.error?.message || `Failed to add item ${ci.name} to cart`)
+        }
+        const addBody = await addRes.json()
+        cartRevision = addBody.mutation_ack?.server_cart_revision ?? cartRevision + 1
+      }
+
+      const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
+      const checkoutEnvelope = buildEnvelope(
+        `checkout_${cartId}`,
+        cartItems.length + 1,
+        {
+          cartId,
+          tableId: tableId || serverCart?.table_id,
+          orderNotes,
+          customerName: guestSession.name || 'Guest',
+          payment_method: paymentMethod,
+        },
+        { expected_cart_revision: cartRevision }
+      )
+
+      const checkoutRes = await fetchPublicApi('/api/v1/orders/checkout', {
+        method: 'POST',
+        headers: qrHeaders,
+        body: JSON.stringify(checkoutEnvelope),
+      })
+
+      const res = await checkoutRes.json()
+
+      if (!checkoutRes.ok || res.success === false) {
+        if (
+          checkoutRes.status === 401 ||
+          res.error?.code === 'UNAUTHORIZED' ||
+          res.error?.message?.toLowerCase().includes('session expired')
+        ) {
+          sessionStorage.removeItem('qr_session_token')
+          sessionStorage.removeItem('qr_session')
+          localStorage.removeItem('orderlyy_qr_context')
+          setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
+          setIsPlacing(false)
+          return
+        }
+        if (res.error?.code === 'CART_ALREADY_CHECKED_OUT' || res.error?.message?.includes('already checked out or locked')) {
+          clear()
+          onClose()
+          navigate('/menu/orders')
+          return
+        }
+        throw new Error(res.error?.message || 'Failed to place order.')
+      }
+
+      if (res?.success === true) {
+        clear()
+        onClose()
+        const orderData = res?.data?.order || res?.data || res
+        const orderId = orderData?.id || res?.id
+        navigate(orderId ? `/menu/track/${orderId}` : '/menu/orders', {
+          state: orderId ? {
+            orderId,
+            orderNumber: orderData?.order_number,
+            tableId: orderData?.table_id,
+            tableName: resolvedTableNum,
+            subtotal,
+            tax: 0,
+            total: subtotal,
+            items: cartItems,
+          } : undefined
+        })
+        return
+      }
+
     } catch (err) {
-      console.error(err);
-      setErrorMsg(err.message || 'An error occurred while placing your order. Please try again.');
+      console.error('[Cart] placeOrder failed:', err)
+      setErrorMsg(err.message || 'Could not place order. Please try again.')
     } finally {
-      setSubmitting(false);
+      setIsPlacing(false)
     }
-  };
+  }
 
   return (
-    <div style={{ maxWidth: '430px', margin: '0 auto', minHeight: '100vh', background: '#E31E24', position: 'relative', display: 'flex', flexDirection: 'column', fontFamily: '"Plus Jakarta Sans", sans-serif', overflow: 'hidden' }}>
-      
-      {/* Dimmed Background Overlay mapping to prior screen */}
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.05)', opacity: 0.4 }}>
-        {/* Faux header from menu beneath */}
-        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', opacity: 0.5 }}>
-           <span className="material-symbols-outlined" style={{ color: 'white', cursor: 'pointer' }} onClick={() => navigate(-1)}>close</span>
-           <span style={{ color: 'white', fontWeight: 800, fontSize: 18 }}>Stitch Kitchen</span>
-           <span className="material-symbols-outlined" style={{ color: 'white' }}>shopping_cart</span>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      style={{
+        maxWidth: 430, margin: '0 auto', minHeight: '100dvh',
+        background: '#F3F5F7', fontFamily: '"Plus Jakarta Sans", sans-serif',
+        paddingBottom: 100, display: 'flex', flexDirection: 'column'
+      }}
+    >
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* Header */}
+      <div style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+        <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#1A1C1E' }}>arrow_back</span>
+        </button>
+        <div>
+          <h2 style={{ fontWeight: 800, fontSize: 16, color: '#1A1C1E', margin: 0, lineHeight: 1.2 }}>Your Order</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 12, color: '#E31E24' }}>restaurant</span>
+            <span style={{ fontSize: 12, color: '#6C757D', fontWeight: 600 }}>Table {resolveTableNum()}</span>
+          </div>
         </div>
       </div>
 
-      {/* Main Sheet */}
-      <motion.div 
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        transition={{ type: "spring", damping: 30, stiffness: 280 }}
-        style={{ marginTop: 80, flex: 1, background: 'white', borderRadius: '32px 32px 0 0', width: '100%', display: 'flex', flexDirection: 'column', position: 'relative', boxShadow: '0 -20px 60px rgba(0,0,0,0.4)', zIndex: 10 }}
-      >
-        
-        {/* Drag Handle */}
-        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', paddingTop: 16, paddingBottom: 8 }}>
-           <div style={{ width: 40, height: 4, background: '#E5E7EB', borderRadius: 2 }}></div>
-        </div>
+      <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {errorMsg && (() => {
+          const isSessionError = 
+            errorMsg.includes('session') || 
+            errorMsg.includes('expired') ||
+            errorMsg.includes('UNAUTHORIZED');
 
-        {/* Header content */}
-        <div style={{ padding: '8px 24px 24px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-           <div>
-             <h1 style={{ color: '#E31E24', fontWeight: 800, fontSize: 24, margin: 0, letterSpacing: '-0.02em' }}>Your Order</h1>
-             <p style={{ color: '#6C757D', fontSize: 14, margin: '4px 0 0', fontWeight: 500 }}>{cart.reduce((a,c) => a+c.qty, 0)} items selected</p>
-           </div>
-           <button onClick={() => navigate(-1)} style={{ width: 36, height: 36, background: '#F3F4F6', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E31E24' }}>
-             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
-           </button>
-        </div>
+          return (
+            <div style={{
+              background: '#1C1C1C',
+              border: '1px solid #F85149',
+              borderRadius: 10,
+              padding: '14px 16px',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>
+                {isSessionError ? '⏱️' : '⚠️'}
+              </div>
+              <p style={{ color: '#F85149', fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                {isSessionError ? 'Session Expired' : 'Order Failed'}
+              </p>
+              <p style={{ color: '#8B949E', fontSize: 12, marginBottom: 12 }}>
+                {isSessionError 
+                  ? 'Your session has expired. Please scan the QR code again.'
+                  : errorMsg || 'Something went wrong. Please try again or ask staff for help.'
+                }
+              </p>
+              {isSessionError && (
+                <button
+                  onClick={() => {
+                    sessionStorage.clear();
+                    localStorage.removeItem('orderlyy_qr_context');
+                    localStorage.removeItem('customerSession');
+                    localStorage.removeItem('guestProfile');
+                    const params = new URLSearchParams(window.location.search);
+                    window.location.href = `/menu/browse?tenantId=${params.get('tenantId')}&branchId=${params.get('branchId')}`;
+                  }}
+                  style={{
+                    background: '#E3B341',
+                    color: '#000',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '10px 20px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >
+                  🔄 Refresh Session
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', paddingBottom: 130 }}>
-          
-          {/* Item List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginBottom: 32 }}>
-            <AnimatePresence>
-              {cart.map(item => (
-                <motion.div key={item.id} layout exit={{ opacity: 0, scale: 0.95 }} style={{ display: 'flex', gap: 16, alignItems: 'start' }}>
-                  
-                  {/* Image */}
-                  <div style={{ width: 72, height: 72, flexShrink: 0 }}>
-                     <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
-                  </div>
-                  
-                  {/* Body */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12 }}>
-                      <div>
-                        <p style={{ color: '#E31E24', fontWeight: 700, fontSize: 16, margin: 0, lineHeight: 1.2 }}>{item.name}</p>
-                        <p style={{ color: '#9CA3AF', fontSize: 12, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.modifier || item.note}</p>
-                      </div>
-                      <p style={{ color: '#E31E24', fontWeight: 800, fontSize: 16, margin: 0 }}>₹{(item.price * item.qty).toLocaleString()}</p>
-                    </div>
-
-                    {/* Controls Row */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', background: '#F3F4F6', borderRadius: 10, padding: '2px' }}>
-                        <button onClick={() => change(item.id, -1)} style={{ width: 32, height: 32, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E31E24', fontWeight: 800, fontSize: 18 }}>−</button>
-                        <span style={{ width: 28, textAlign: 'center', color: '#E31E24', fontWeight: 700, fontSize: 14 }}>{item.qty}</span>
-                        <button onClick={() => change(item.id, 1)} style={{ width: 32, height: 32, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E31E24', fontWeight: 800, fontSize: 18 }}>+</button>
-                      </div>
-                      <button onClick={() => change(item.id, -item.qty)} style={{ background: 'transparent', border: 'none', color: '#EF4444', padding: 8, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                         <span className="material-symbols-outlined" style={{ fontSize: 20 }}>delete</span>
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+        {cartItems.length === 0 ? (
+          <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#9CA3AF' }}>shopping_basket</span>
+            </div>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#1A1C1E', margin: '0 0 8px' }}>Your basket is empty</h3>
+            <p style={{ fontSize: 14, color: '#6C757D', lineHeight: 1.5, margin: '0 0 24px' }}>Add some delicious items from the menu to place an order</p>
+            <button onClick={onClose} style={{ background: '#FFFFFF', color: '#E31E24', border: '1.5px solid #E31E24', borderRadius: 12, padding: '12px 32px', fontWeight: 700, cursor: 'pointer' }}>Browse Menu</button>
           </div>
+        ) : (
+          <>
+            {/* Cart Items Card */}
+            <div style={{ background: '#FFFFFF', borderRadius: 16, padding: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
+              {cartItems.map((item, idx) => (
+                <div key={`${item.id}-${idx}`} style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 16, marginBottom: 16, borderBottom: idx === cartItems.length - 1 ? 'none' : '1px dashed #E5E7EB' }}>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, paddingRight: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+                        {item.is_veg !== undefined && (
+                          <div style={{ width: 14, height: 14, borderRadius: 2, border: item.is_veg ? '2px solid #22C55E' : '2px solid #E31E24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0 }}>
+                            <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: item.is_veg ? '#22C55E' : '#E31E24' }} />
+                          </div>
+                        )}
+                        <div>
+                          <h4 style={{ fontWeight: 700, fontSize: 15, color: '#1A1C1E', margin: 0, lineHeight: 1.3 }}>{item.name}</h4>
+                          <span style={{ fontWeight: 800, fontSize: 14, color: '#1A1C1E', display: 'block', marginTop: 4 }}>₹{(item.unit_price || item.price || 0) * item.qty}</span>
+                        </div>
+                      </div>
+                      
+                      {item.modifiers?.length > 0 && (
+                        <div style={{ fontSize: 12, color: '#6C757D', marginTop: 6, paddingLeft: item.is_veg !== undefined ? 22 : 0 }}>
+                          <span style={{ fontWeight: 600 }}>Customize:</span> {item.modifiers.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                       <div style={{ width: 84, height: 84, borderRadius: 12, overflow: 'hidden', background: '#F3F4F6', flexShrink: 0, border: '1px solid #E5E7EB', position: 'relative' }}>
+                         <img src={item.image_url || `https://placehold.co/84x84?text=${item.name[0]}`} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                       </div>
+                       <div style={{ display: 'flex', alignItems: 'center', background: '#FFFFFF', borderRadius: 8, height: 32, padding: '0 4px', border: '1px solid #E5E7EB', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginTop: -16, position: 'relative', zIndex: 2 }}>
+                          <button onClick={() => updateQty(item.id, item.modifiers, item.qty - 1)} style={{ width: 28, height: 28, border: 'none', background: 'transparent', color: '#E31E24', fontWeight: 800, cursor: 'pointer', fontSize: 18 }}>−</button>
+                          <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#E31E24' }}>{item.qty}</span>
+                          <button onClick={() => addItem({ ...item, qty: 1, unit_price: item.unit_price || item.price || 0 })} style={{ width: 28, height: 28, border: 'none', background: 'transparent', color: '#E31E24', fontWeight: 800, cursor: 'pointer', fontSize: 18 }}>+</button>
+                        </div>
+                    </div>
+                  </div>
 
-          <div style={{ height: 1, background: '#F3F4F6', marginBottom: 32 }}></div>
+                  {/* Action buttons under item */}
+                  <div style={{ display: 'flex', gap: 8, paddingLeft: item.is_veg !== undefined ? 22 : 0 }}>
+                    <button onClick={() => navigate('/menu/browse')} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#4B5563', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span> Add Items
+                    </button>
+                  </div>
 
-          {/* Upsell */}
-          <div style={{ marginBottom: 40 }}>
-            <h3 style={{ color: '#9CA3AF', fontWeight: 800, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 16 }}>Often ordered with</h3>
-            <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8, margin: '0 -24px', paddingLeft: 24 }}>
-              {UPSELL.map(item => (
-                <div key={item.id} style={{ flexShrink: 0, width: 140 }}>
-                  <img src={item.image} alt={item.name} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
                 </div>
               ))}
             </div>
-          </div>
 
-          {/* Totals */}
-          <div style={{ background: '#F9FAFB', borderRadius: 20, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6C757D', fontSize: 14 }}>
-               <span>Subtotal</span>
-               <span style={{ fontWeight: 600, color: '#E31E24' }}>₹{subtotal.toLocaleString()}</span>
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6C757D', fontSize: 14 }}>
-               <span>Taxes</span>
-               <span style={{ fontWeight: 600, color: '#E31E24' }}>Calculated at checkout</span>
-             </div>
-             <div style={{ height: 1, background: '#E5E7EB', margin: '4px 0' }}></div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#E31E24', fontWeight: 800, fontSize: 18 }}>Estimated Total</span>
-                <span style={{ color: '#E31E24', fontWeight: 900, fontSize: 24 }}>₹{subtotal.toLocaleString()}</span>
-             </div>
-          </div>
+            {/* Recommendations */}
+            {recommendations.length > 0 && (
+              <div style={{ background: '#FFFFFF', borderRadius: 16, padding: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
+                <h5 style={{ fontSize: 12, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 12px' }}>Complete your meal</h5>
+                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', margin: '0 -16px', paddingLeft: 16, paddingRight: 16 }}>
+                  {recommendations.map(rec => (
+                    <div key={rec.id} style={{ width: 140, flexShrink: 0, background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ width: '100%', height: 90, background: '#F3F4F6', borderRadius: 8, marginBottom: 8, overflow: 'hidden', position: 'relative' }}>
+                        <img src={rec.image_url || `https://placehold.co/140x90?text=${rec.name[0]}`} alt={rec.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button 
+                           onClick={() => { CustomerRecommendationService.trackRecommendationClick(rec); addItem({ ...rec, qty: 1, unit_price: rec.effective_price || rec.price, modifiers: [], note: '' }); }}
+                           style={{ position: 'absolute', top: 6, right: 6, width: 28, height: 28, borderRadius: '50%', background: '#FFFFFF', border: '1px solid #E5E7EB', color: '#22C55E', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, fontWeight: 800 }}>add</span>
+                        </button>
+                      </div>
+                      
+                      {rec.is_veg !== undefined && (
+                        <div style={{ width: 10, height: 10, borderRadius: 2, border: rec.is_veg ? '2px solid #22C55E' : '2px solid #E31E24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
+                          <div style={{ width: 4, height: 4, borderRadius: '50%', backgroundColor: rec.is_veg ? '#22C55E' : '#E31E24' }} />
+                        </div>
+                      )}
+                      <p style={{ fontWeight: 600, fontSize: 12, color: '#1A1C1E', margin: '0 0 4px', lineHeight: 1.3, height: 32, overflow: 'hidden' }}>{rec.name}</p>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1A1C1E', marginTop: 'auto' }}>₹{rec.effective_price || rec.price}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
+            {/* Bill Details */}
+            <div style={{ background: '#FFFFFF', borderRadius: 16, padding: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
+               <h5 style={{ fontSize: 12, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 16px' }}>Cooking requests</h5>
+               <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Any special instructions for the kitchen?"
+                rows={2}
+                style={{ width: '100%', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '12px', fontSize: 13, color: '#1A1C1E', resize: 'none', outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>Item Total</span>
+                <span style={{ color: '#1A1C1E', fontWeight: 600, fontSize: 13 }}>₹{subtotal}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>Taxes & Charges</span>
+                <span style={{ color: '#E31E24', fontWeight: 600, fontSize: 13 }}>Will be added</span>
+              </div>
+              <div style={{ height: 1, borderTop: '1px dashed #E5E7EB', margin: '0 -16px 16px' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 15 }}>Grand Total</span>
+                <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 16 }}>₹{subtotal}</span>
+              </div>
+            </div>
+
+          </>
+        )}
+      </div>
+
+      {cartItems.length > 0 && (
+        <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, background: '#FFFFFF', padding: '16px', borderTop: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: 16, zIndex: 30, boxShadow: '0 -4px 12px rgba(0,0,0,0.05)' }}>
+          <button
+            id="place-order-btn"
+            onClick={handlePlaceOrder}
+            disabled={isPlacing}
+            style={{
+              width: '100%', height: 48, background: isPlacing ? '#9CA3AF' : '#E31E24', color: 'white',
+              border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: isPlacing ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(227,30,36,0.3)'
+            }}
+          >
+            {isPlacing ? 'Processing...' : 'Place Order'}
+          </button>
         </div>
-
-        {/* Place Order CTA Sticky Footer */}
-        <div style={{ position: 'absolute', bottom: 0, width: '100%', background: 'white', padding: '20px 24px 40px', boxSizing: 'border-box', borderTop: '1px solid #F3F4F6' }}>
-           {errorMsg && (
-             <div style={{ padding: '8px 12px', background: '#FEE2E2', color: '#EF4444', borderRadius: 8, fontSize: 13, marginBottom: 12, fontWeight: 600, textAlign: 'center' }}>
-               {errorMsg}
-             </div>
-           )}
-           <button
-             disabled={submitting}
-             onClick={submitOrder}
-             style={{ 
-               width: '100%', background: submitting ? '#FCA5A5' : '#E31E24', color: 'white', 
-               padding: '18px 0', borderRadius: 16, border: 'none', 
-               fontWeight: 700, fontSize: 16, cursor: submitting ? 'not-allowed' : 'pointer', 
-               boxShadow: '0 10px 30px rgba(27,43,75,0.2)',
-               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12
-             }}
-           >
-             {submitting ? 'Placing Order...' : 'Confirm Order'}
-             {!submitting && <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_forward</span>}
-           </button>
-        </div>
-
-      </motion.div>
-    </div>
+      )}
+    </motion.div>
   )
 }

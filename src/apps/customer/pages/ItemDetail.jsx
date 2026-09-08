@@ -54,7 +54,7 @@ export default function ItemDetail() {
           return {
             ...i,
             price,
-            is_veg: (i.dietary_tags || []).includes('vegetarian'),
+            is_veg: i.is_veg === true,
             modifierGroups: i.modifierGroups || i.modifier_groups || [],
           }
         })
@@ -73,13 +73,6 @@ export default function ItemDetail() {
 
     fetchItem()
   }, [itemId])
-
-  // Lock body scroll while detail is open
-  useEffect(() => {
-    window.scrollTo(0, 0)
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = '' }
-  }, [])
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', background: '#fff' }}>
@@ -118,7 +111,7 @@ export default function ItemDetail() {
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: '100%', opacity: 0 }}
       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-      style={{ maxWidth: 430, margin: '0 auto', minHeight: '100vh', background: '#FFFFFF', fontFamily: '"Plus Jakarta Sans", sans-serif', overflowX: 'hidden', paddingBottom: 120 }}
+      style={{ maxWidth: 430, margin: '0 auto', minHeight: '100dvh', background: '#FFFFFF', fontFamily: '"Plus Jakarta Sans", sans-serif', paddingBottom: 120 }}
     >
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 

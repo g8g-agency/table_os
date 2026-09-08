@@ -34,64 +34,8 @@ export class RuntimeAuthService {
     branchId: string,
     deviceSessionId: string
   ): Promise<string> {
-    // 1. Verify Platform Identity via Supabase + DB profiles
-    let validation = await validateAccessToken(supabaseToken);
-
-    if (!validation.valid || !validation.user_id) {
-      // Fallback: Decode token sub to inspect user profile in DB directly
-      try {
-        const decoded: any = jwt.decode(supabaseToken);
-        if (decoded?.sub) {
-          let { data: profile } = await supabaseAdmin
-            .from('admin_profiles')
-            .select('*')
-            .eq('id', decoded.sub)
-            .maybeSingle();
-
-          if (profile && profile.is_active) {
-            validation = {
-              valid: true,
-              user_id: profile.id,
-              email: decoded.email || '',
-              role: (profile.role || 'RESTAURANT_ADMIN') as Role,
-              tenant_id: profile.tenant_id,
-              branch_ids: [],
-              must_change_password: false,
-            };
-          } else {
-            // Check staff table (staff users who clock in from Staff App)
-            let { data: staffRow } = await supabaseAdmin
-              .from('staff')
-              .select('*')
-              .eq('user_id', decoded.sub)
-              .maybeSingle();
-
-            if (!staffRow) {
-              const { data: staffRow2 } = await supabaseAdmin
-                .from('staff')
-                .select('*')
-                .eq('id', decoded.sub)
-                .maybeSingle();
-              staffRow = staffRow2;
-            }
-
-            if (staffRow && staffRow.is_active !== false) {
-              validation = {
-                valid: true,
-                user_id: staffRow.id,
-                email: decoded.email || '',
-                role: (staffRow.role || 'WAITER') as Role,
-                tenant_id: staffRow.tenant_id,
-                branch_ids: staffRow.branch_id ? [staffRow.branch_id] : [],
-                must_change_password: false,
-              };
-            }
-          }
-        }
-      } catch (err) {
-        logger.error({ err }, 'Fallback token validation failed');
-      }
-    }
+    // Primary: Verify Platform Identity via Supabase JWKS + DB profiles
+    const validation = await validateAccessToken(supabaseToken);
 
     if (!validation.valid || !validation.user_id) {
       throw new AuthenticationError('Invalid platform credentials');

@@ -15,18 +15,19 @@ export function useAvailabilityPolling({ tenantSlug, tenantId, branchId, interva
     // Safety check - we need these to poll
     if ((!tenantSlug && !tenantId) || !branchId) return;
 
-    const fetchOverlay = async () => {
+    const fetchOverlay = async (signal) => {
       // Prevent overlapping fetches
       if (isFetching.current) return;
       if (!navigator.onLine) return;
 
       isFetching.current = true;
       try {
-        const data = await AvailabilityRepository.fetchAvailabilityOverlay({ tenantSlug, tenantId, branchId });
+        const data = await AvailabilityRepository.fetchAvailabilityOverlay({ tenantSlug, tenantId, branchId, signal });
         if (isActive) {
           setOverlayData(data);
         }
       } catch (err) {
+        if (err.name === 'AbortError') return;
         if (isActive) {
           console.error('[Availability Polling] Failed to fetch:', err);
           setStale(err.message);
@@ -38,16 +39,19 @@ export function useAvailabilityPolling({ tenantSlug, tenantId, branchId, interva
       }
     };
 
+    let abortController = new AbortController();
+    
     // Kick off initial fetch immediately
-    fetchOverlay();
+    fetchOverlay(abortController.signal);
 
     // Set up strict interval to guarantee no cascading polling loops
     // Math.max ensures we never poll faster than 5 seconds even if misconfigured
     const safeInterval = Math.max(intervalMs, 5000);
-    intervalRef.current = setInterval(fetchOverlay, safeInterval);
+    intervalRef.current = setInterval(() => fetchOverlay(abortController.signal), safeInterval);
 
     return () => {
       isActive = false;
+      abortController.abort();
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }

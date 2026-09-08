@@ -97,6 +97,7 @@ export const CreateMenuItemSchema = z.object({
   prep_time_minutes:  z.number().int().min(0).max(600).nullable().optional(),
   sort_order:         sortOrder,
   is_featured:        z.boolean().optional().default(false),
+  is_veg:             z.boolean().optional().default(false),
   image_url:          z.string().nullable().optional(),
   thumbnail_url:      z.string().nullable().optional(),
   modifier_group_ids: z.array(uuid).max(20).nullable().optional(),
@@ -118,6 +119,7 @@ export const UpdateMenuItemSchema = z.object({
   prep_time_minutes:  z.number().int().min(0).max(600).nullable().optional(),
   sort_order:         z.number().int().min(0).optional(),
   is_featured:        z.boolean().optional(),
+  is_veg:             z.boolean().optional(),
   status:             z.enum(ITEM_STATUSES).optional(),
   image_url:          z.string().nullable().optional(),
   thumbnail_url:      z.string().nullable().optional(),
@@ -145,6 +147,7 @@ export const UpdateModifierOptionSchema = z.object({
 export const CreateModifierGroupSchema = z.object({
   name:        nonEmpty,
   description: z.string().max(1000).optional(),
+  selection_mode: z.enum(['single', 'multiple']).optional().default('single'),
   is_required: z.boolean().optional().default(false),
   min_select:  z.number().int().min(0).optional().default(0),
   max_select:  z.number().int().min(1).nullable().optional(),
@@ -156,15 +159,19 @@ export const CreateModifierGroupSchema = z.object({
 ).refine(
   (d) => !d.is_required || d.min_select >= 1,
   { message: 'Required groups must have min_select >= 1', path: ['min_select'] }
+).refine(
+  (d) => d.selection_mode !== 'single' || (d.max_select != null && d.max_select <= 1),
+  { message: 'Single select groups cannot have max_select > 1', path: ['max_select'] }
 );
 
 export const UpdateModifierGroupSchema = z.object({
   name:        z.string().min(1).max(500).optional(),
   description: z.string().max(1000).nullable().optional(),
+  selection_mode: z.enum(['single', 'multiple']).optional(),
   is_required: z.boolean().optional(),
   min_select:  z.number().int().min(0).optional(),
   max_select:  z.number().int().min(1).nullable().optional(),
-  sort_order:  z.number().int().min(0).optional(),
+  sort_order:  sortOrder,
   is_active:   z.boolean().optional(),
 });
 

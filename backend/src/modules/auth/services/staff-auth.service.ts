@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../../../config/supabase';
-import { AuthenticationError } from '../../../shared/errors/AppError';
+import { AuthenticationError, ForbiddenError } from '../../../shared/errors/AppError';
 import { env } from '../../../config/env';
 import type { RuntimeJwtPayload } from './runtime-auth.service';
 import { type Role } from '../../../types/rbac.types';
@@ -13,6 +13,19 @@ export interface StaffLoginRequest {
   employeeId: string;
   pin: string;
 }
+
+/**
+ * Roles permitted to authenticate with the Staff (Waiter/Floor) App.
+ * KDS-only roles (KITCHEN) must be explicitly excluded here.
+ */
+const STAFF_APP_ALLOWED_ROLES = new Set([
+  'server',
+  'waiter',
+  'runner',
+  'host',
+  'manager',
+  'staff',
+]);
 
 export class StaffAuthService {
   static async loginStaff(request: StaffLoginRequest): Promise<{ runtime_token: string }> {
@@ -53,7 +66,12 @@ export class StaffAuthService {
       throw new AuthenticationError('Invalid PIN');
     }
 
-    // Normalize role to match RBAC constants
+    // 3. Role-based authorization: block KDS/kitchen-only roles from accessing Staff App
+    const rawRole = (staff.role || '').toLowerCase().trim();
+    if (!STAFF_APP_ALLOWED_ROLES.has(rawRole)) {
+      console.log(`[StaffAuthService] Role "${staff.role}" not authorized for Staff App. Staff id: ${staff.id}`);
+      throw new ForbiddenError('This account is not authorized to use the Staff app.');
+    }
     let normalizedRoleStr = (staff.role || 'STAFF').toUpperCase();
     if (normalizedRoleStr === 'WAITER') normalizedRoleStr = 'SERVER';
     const normalizedRole = normalizedRoleStr as Role;
@@ -73,7 +91,11 @@ export class StaffAuthService {
     };
 
     // 4. Sign token
-    const token = jwt.sign(payload, env.RUNTIME_JWT_SECRET, { expiresIn: '12h' });
+    const token = jwt.sign(payload, env.RUNTIME_JWT_SECRET, { 
+      expiresIn: '12h',
+      issuer: 'tableos-runtime',
+      audience: 'tableos-edge-services'
+    });
 
     return { runtime_token: token };
   }

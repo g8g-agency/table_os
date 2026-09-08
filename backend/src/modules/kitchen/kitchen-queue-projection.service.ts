@@ -46,9 +46,9 @@ export class KitchenQueueProjectionService {
       // 1.5 Fetch staff details to resolve assigned staff names
       const staffIds = new Set<string>();
       for (const ticket of tickets) {
-        if (ticket.orders?.updated_by) {
-          staffIds.add(ticket.orders.updated_by);
-        }
+        // ONLY use tables.assigned_staff_id — this is set exclusively by the
+        // assign_waiter mutation using the canonical staff.id PK.
+        // updated_by is an auth UUID and must NOT be used as a waiter display name source.
         if (ticket.orders?.tables?.assigned_staff_id) {
           staffIds.add(ticket.orders.tables.assigned_staff_id);
         }
@@ -160,8 +160,10 @@ export class KitchenQueueProjectionService {
         const completedItems = items.reduce((acc, curr) => acc + curr.completedQuantity, 0);
         const prepProgressPercentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
-        const staffId = ticket.orders?.updated_by || ticket.orders?.tables?.assigned_staff_id;
-        const assignedStaffName = staffId ? staffMap.get(staffId) : null;
+        // Use ONLY the authoritative assigned_staff_id — set exclusively by assign_waiter mutation.
+        // If no waiter has been assigned yet, both fields are null so the KDS hides the label.
+        const assignedStaffIdFromTable = ticket.orders?.tables?.assigned_staff_id || null;
+        const resolvedStaffName = assignedStaffIdFromTable ? staffMap.get(assignedStaffIdFromTable) ?? null : null;
 
         const projection: ActiveKitchenOrderProjection = {
           ticketId: ticket.id,
@@ -178,8 +180,9 @@ export class KitchenQueueProjectionService {
           createdAt: ticket.created_at,
           updatedAt: ticket.updated_at,
           items,
-          assignedStaffId: staffId || null,
-          assignedStaffName: assignedStaffName || null,
+          // Only set if we have a resolved name — null means "not yet assigned", never a UUID
+          assignedStaffId: resolvedStaffName ? assignedStaffIdFromTable : null,
+          assignedStaffName: resolvedStaffName,
           metrics: {
             totalItems,
             completedItems,

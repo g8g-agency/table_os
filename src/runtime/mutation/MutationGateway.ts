@@ -73,11 +73,13 @@ export class MutationGateway {
     const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     this.apiBaseUrl = API_BASE_URL;
 
-    // Get tenant and branch from runtime auth store or identity store fallback
+    // Get tenant and branch from runtime auth store, identity store fallback, or QR session context
     const authState = useRuntimeAuthStore.getState();
     const identityState = useRuntimeIdentityStore.getState();
-    const tenantId = authState.tenantId || identityState.effectiveTenantId || (identityState as any).tenantId || null;
-    const branchId = authState.branchId || identityState.branchId || null;
+    const isClient = typeof sessionStorage !== 'undefined';
+    
+    const tenantId = authState.tenantId || identityState.effectiveTenantId || (identityState as any).tenantId || (isClient ? sessionStorage.getItem('qr_tenant_id') : null) || null;
+    const branchId = authState.branchId || identityState.branchId || (isClient ? sessionStorage.getItem('qr_branch_id') : null) || null;
 
     console.log('[MutationGateway] Auth state for envelope:', {
       hasTenantId: !!tenantId,
@@ -139,8 +141,8 @@ export class MutationGateway {
       console.debug('[MutationGateway] Added auth token to headers');
     }
 
-    // Fallback: Check for QR token (customer orders)
-    if (!runtimeToken && qrToken) {
+    // Always attach QR token if it exists (allows backend to prefer it for QR surfaces)
+    if (qrToken) {
       headers.set('x-qr-session-token', qrToken);
       console.debug('[MutationGateway] Added QR session token to headers');
     }

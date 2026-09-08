@@ -67,6 +67,9 @@ export async function fetchWithRuntime(endpoint, options = {}) {
 
     return response;
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw error;
+    }
     error.requestId = headers.get('X-Request-Id');
     console.error(`[RuntimeApiClient] Network failure fetching ${endpoint}`, error);
     useConnectivityStore.getState().recordApiTimeout();
@@ -80,7 +83,7 @@ export async function fetchWithRuntime(endpoint, options = {}) {
  */
 export async function fetchPublicApi(endpoint, options = {}) {
   const headers = new Headers(options.headers || {});
-
+  
   if (!headers.has('X-Request-Id')) {
     headers.set('X-Request-Id', crypto.randomUUID());
   }
@@ -91,19 +94,32 @@ export async function fetchPublicApi(endpoint, options = {}) {
   }
   headers.set('Accept', 'application/json');
 
+  const finalUrl = `${API_BASE_URL}${endpoint}`;
+  const requestId = headers.get('X-Request-Id');
+  const startTime = Date.now();
+
+  console.log(`[FetchDiagnostics] [${requestId}] 1. URL:`, finalUrl);
+  console.log(`[FetchDiagnostics] [${requestId}] 2. Timeout:`, options.signal ? 'Signal provided' : 'None');
+  
+  if (options.signal) {
+    console.log(`[FetchDiagnostics] [${requestId}] 3. AbortController exists`);
+    options.signal.addEventListener('abort', () => {
+      console.log(`[FetchDiagnostics] [${requestId}] 7. REQUEST ABORTED at ${Date.now() - startTime}ms`);
+    });
+  }
+
+  console.log(`[FetchDiagnostics] [${requestId}] 4. Request starts`);
+
   try {
-    const finalUrl = `${API_BASE_URL}${endpoint}`;
-    
-    console.log('[QR]', 'base_url', API_BASE_URL);
-    console.log('[QR]', 'final_url', finalUrl);
-    
     const response = await fetch(finalUrl, {
       ...options,
       headers
     });
 
-    console.log('[QR]', 'status', response.status);
-    console.log('[QR]', 'content_type', response.headers.get('content-type'));
+    const elapsed = Date.now() - startTime;
+    console.log(`[FetchDiagnostics] [${requestId}] 5. Fetch resolves`);
+    console.log(`[FetchDiagnostics] [${requestId}] 6. Status:`, response.status);
+    console.log(`[FetchDiagnostics] [${requestId}] 9. Elapsed:`, elapsed, 'ms');
 
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('text/html')) {
@@ -113,7 +129,19 @@ export async function fetchPublicApi(endpoint, options = {}) {
     useConnectivityStore.getState().recordApiSuccess();
     return response;
   } catch (error) {
-    error.requestId = headers.get('X-Request-Id');
+    if (error?.name === 'AbortError') {
+      console.log(`[FetchDiagnostics] [${requestId}] 7. REQUEST ABORTED`);
+      throw error;
+    }
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[FetchDiagnostics] [${requestId}] 8. EXACT ERROR CAUGHT at ${elapsed}ms:`, {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
+    error.requestId = requestId;
     console.error(`[PublicApiClient] Network failure fetching ${endpoint}`, error);
     useConnectivityStore.getState().recordApiTimeout();
     throw error;
@@ -126,7 +154,15 @@ export async function fetchPublicApi(endpoint, options = {}) {
  */
 export async function submitMutation(endpoint, mutation) {
   const identity = useRuntimeIdentityStore.getState();
-  const surfaceId = identity.terminalId || 'unknown_surface';
+  
+  let surfaceId = identity.terminalId;
+  if (!surfaceId && typeof sessionStorage !== 'undefined') {
+    const qrTableId = sessionStorage.getItem('qr_table_id');
+    if (qrTableId) {
+      surfaceId = `qr_table_${qrTableId}`;
+    }
+  }
+  surfaceId = surfaceId || 'unknown_surface';
   
   // Delegate the operational mutation boundary to the formal runtime infrastructure
   return await runtime.mutation.submitMutation(endpoint, mutation, surfaceId);

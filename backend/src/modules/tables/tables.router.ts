@@ -207,5 +207,24 @@ router.patch('/reservations/:reservationId', requireMinRole(ROLES.STAFF), async 
     res.status(200).json({ success: true, data: reservation });
   } catch (err) { next(err); }
 });
+// ─── Table Sessions (Phase 2 MVP) ───────────────────────────────
+
+router.post('/:tableId/sessions/payment-request', requireMinRole(ROLES.STAFF), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.context.tenantId!;
+    const branchId = (req.headers['x-branch-id'] as string) || (req.context as any).branchId || '';
+    const tableId = req.params.tableId as string;
+
+    const { TableSessionsService } = await import('./services/table-sessions.service');
+    
+    const session = await TableSessionsService.requestPayment({
+      tenantId,
+      branchId,
+      tableId,
+    });
+
+    res.status(200).json({ success: true, data: session });
+  } catch (err) { next(err); }
+});
 
 export { router as tablesRouter };

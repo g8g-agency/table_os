@@ -13,7 +13,7 @@
 
 import { logger } from '../../../shared/utils/logger';
 import { findRecommendationsForItems } from '../repositories/menu-recommendation.repository';
-import { findAnyItemById, findAllBranchItemOverrides, findModifierGroupIdsForItem } from '../repositories/menu-item.repository';
+import { findAnyItemById, findAllBranchItemOverrides, findModifierGroupIdsForItem, findModifierGroupIdsForItems } from '../repositories/menu-item.repository';
 import { findModifierGroupsWithOptions, findBranchModifierGroupOverrides, findBranchModifierOverrides } from '../repositories/modifier.repository';
 import type { EffectiveMenuItemRecommendation, MenuItem, EffectiveMenuItem, ModifierGroupWithOptions, ModifierOption } from '../menu.types';
 
@@ -101,10 +101,9 @@ export async function resolveEffectiveMenuItemsByIds(
   const overrideMap = new Map(overrides.map((o) => [o.item_id, o]));
 
   // 3. Modifier groups (read-only batch)
-  const groupIdSets = await Promise.all(
-    items.map((i) => findModifierGroupIdsForItem(tenantId, i.id))
-  );
-  const allGroupIds = [...new Set(groupIdSets.flat())];
+  const itemIdsOnly = items.map((i) => i.id);
+  const modifierGroupMap = await findModifierGroupIdsForItems(tenantId, itemIdsOnly);
+  const allGroupIds = [...new Set(Array.from(modifierGroupMap.values()).flat())];
 
   const modGroups = await findModifierGroupsWithOptions(tenantId, allGroupIds);
   const groupMap = new Map(modGroups.map((g) => [g.id, g]));
@@ -122,7 +121,7 @@ export async function resolveEffectiveMenuItemsByIds(
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const override = overrideMap.get(item.id);
-    const groupIds = groupIdSets[i];
+    const groupIds = modifierGroupMap.get(item.id) || [];
 
     const effectivePrice = override?.override_price ?? item.base_price;
     const effectiveAvailable = override?.is_available ?? (item.status === 'active');
@@ -173,6 +172,7 @@ export async function resolveEffectiveMenuItemsByIds(
       prep_time_minutes: item.prep_time_minutes,
       is_available: effectiveAvailable,
       is_featured: item.is_featured,
+      is_veg: item.is_veg,
       image_url: item.image_url,
       thumbnail_url: item.thumbnail_url,
       sort_order: effectiveSortOrder,

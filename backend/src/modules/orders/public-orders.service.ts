@@ -24,6 +24,8 @@ export interface PublicCheckoutItem {
 export interface PublicCheckoutInput {
   items: PublicCheckoutItem[];
   order_notes?: string;
+  customer_id?: string;
+  payment_method?: 'cash' | 'upi';
 }
 
 /**
@@ -104,6 +106,8 @@ export async function createPublicOrder(params: {
     idempotencyKey,
     orderNotes: input.order_notes,
     source: 'qr_scan',
+    customerId: input.customer_id,
+    customerPaymentIntent: input.payment_method,
   });
 }
 

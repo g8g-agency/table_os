@@ -185,6 +185,27 @@ export class SettlementLifecycleService {
             }
           }
         }
+
+        // D. Safely evaluate Session Closure Concurrency
+        if (bill.session_id) {
+          const { data: closureData, error: closureErr } = await supabaseAdmin.rpc('close_guest_session_safely', {
+            p_tenant_id: tenantId,
+            p_session_id: bill.session_id,
+          });
+
+          if (!closureErr && closureData && closureData.success === true) {
+            // Rebuild table projection if needed, or simply log it.
+            // The active session is now closed, preventing new orders.
+            await supabaseAdmin.rpc('log_financial_event', {
+              p_tenant_id: tenantId,
+              p_branch_id: bill.branch_id,
+              p_event_type: 'SESSION_CLOSED_ON_SETTLEMENT',
+              p_aggregate_id: bill.session_id,
+              p_aggregate_type: 'guest_session',
+              p_payload: { tableId: closureData.table_id },
+            });
+          }
+        }
       }
 
       return updatedBill as BillDTO;

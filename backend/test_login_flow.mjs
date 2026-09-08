@@ -10,7 +10,7 @@ async function runTest() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: 'oceanbite.owner@test.com',
+      email: 'testcafe.owner@test.com',
       password: 'Test@123456',
       device_fingerprint: 'test-fingerprint-1234567890'
     })
@@ -39,12 +39,15 @@ async function runTest() {
   });
   data = await res.json();
   const staffArray = Array.isArray(data.data) ? data.data : data.data.staff;
-  const staff = staffArray.find(s => s.role === 'MANAGER' || s.role === 'RESTAURANT_ADMIN') || staffArray[0];
+  const staff = staffArray.find(s => 
+    s.role.toLowerCase() === 'manager' || s.role.toLowerCase() === 'restaurant_admin'
+  ) || staffArray[0];
   const employeeId = staff.employee_id || staff.id;
+  const pin = staff.pin || '1234'; // Use configured PIN if available in response, else fallback for test
   console.log(`✅ Staff Fetched. Selected Staff: ${staff.first_name} ${staff.last_name} (Role: ${staff.role}, Employee ID: ${employeeId})`);
 
-  // 4. Staff Login - VALID PIN
-  console.log('\n[4] Staff Login (Valid PIN: 1234)...');
+  // 4. Staff Login
+  console.log(`\n[4] Staff Login (PIN: ${pin})...`);
   res = await fetch(`${BASE_URL}/auth/staff/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,7 +55,7 @@ async function runTest() {
       tenantId: tenantId,
       branchId: branchId,
       employeeId: employeeId,
-      pin: '1234'
+      pin: pin
     })
   });
   data = await res.json();

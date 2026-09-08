@@ -8,6 +8,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { corsOrigins, env } from './config/env';
+import { ForbiddenError } from './shared/errors/AppError';
 import { authRouter } from './modules/auth/auth.router';
 import { tenantRouter } from './modules/tenants/tenant.router';
 import { rbacRouter } from './modules/rbac/rbac.router';
@@ -45,6 +46,7 @@ import { ObservabilityService } from './modules/infrastructure/observability.ser
 import { errorMiddleware } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
 import { devBroadcastRouter } from './modules/transport/dev-broadcast.router';
+import { tableSessionsRouter } from './modules/tables/table-sessions.router';
 
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
@@ -70,6 +72,22 @@ export function createApp(): express.Application {
   });
   app.use(globalLimiter);
 
+  // ============================================================
+  // TEMPORARY DIAGNOSTIC LOGGING FOR MENU ROUTES
+  // ============================================================
+  app.use((req, _res, next) => {
+    if (
+      req.path.includes('/categories') || 
+      req.path.includes('/items') || 
+      req.path.includes('/menu-availability')
+    ) {
+      console.log(`\n\n[DIAGNOSTIC] INCOMING REQUEST -> ${req.method} ${req.originalUrl}`);
+      console.log(`[DIAGNOSTIC] HEADERS:`, req.headers);
+      console.log(`[DIAGNOSTIC] ORIGIN:`, req.headers.origin);
+    }
+    next();
+  });
+
   // ─── CORS ──────────────────────────────────────────────────
   app.use(
     cors({
@@ -87,7 +105,7 @@ export function createApp(): express.Application {
         if (corsOrigins.includes(requestOrigin)) {
           return callback(null, true);
         }
-        return callback(new Error('Not allowed by CORS'));
+        return callback(new ForbiddenError('Not allowed by CORS'));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -215,6 +233,9 @@ export function createApp(): express.Application {
 
   // ─── Order API (requires QR session or Staff Auth) ──────────
   app.use('/api/v1/orders', ordersRouter);
+
+  // ─── Table Sessions API (requires Staff Auth) ─────────────
+  app.use('/api/v1/sessions', tableSessionsRouter);
 
   // ─── Kitchen KDS API (requires Staff Auth) ──────────────────
   app.use('/api/v1/kitchen', kitchenRouter);

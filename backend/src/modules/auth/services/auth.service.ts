@@ -51,6 +51,73 @@ const jwks = jwksClient({
   cacheMaxAge: 86400000, // 24 hours — keys rarely rotate
 });
 
+// ─── Account State Cache ───────────────────────────────────────
+// 30-second TTL cache for account state to prevent per-request DB lookups
+// while still evicting quickly enough for suspension to take effect.
+interface CachedAccountState {
+  is_active: boolean;
+  is_locked: boolean;
+  locked_until: string | null;
+  expiresAt: number;
+}
+const accountStateCache = new Map<string, CachedAccountState>();
+const ACCOUNT_STATE_TTL_MS = 30_000; // 30 seconds
+
+async function getAccountState(userId: string, email: string): Promise<{ active: boolean; reason?: string }> {
+  const now = Date.now();
+  const cached = accountStateCache.get(userId);
+  if (cached && cached.expiresAt > now) {
+    if (!cached.is_active) return { active: false, reason: 'Account is disabled' };
+    if (cached.is_locked) {
+      const until = cached.locked_until ? new Date(cached.locked_until) : null;
+      if (!until || until > new Date()) return { active: false, reason: 'Account is locked' };
+    }
+    return { active: true };
+  }
+
+  // Try admin_profiles first
+  const { data: profile } = await supabaseAdmin
+    .from('admin_profiles')
+    .select('is_active, is_locked, locked_until')
+    .or(`id.eq.${userId},email.eq.${encodeURIComponent(email)}`)
+    .maybeSingle();
+
+  if (profile) {
+    accountStateCache.set(userId, {
+      is_active: profile.is_active ?? true,
+      is_locked: profile.is_locked ?? false,
+      locked_until: profile.locked_until ?? null,
+      expiresAt: now + ACCOUNT_STATE_TTL_MS,
+    });
+    if (!profile.is_active) return { active: false, reason: 'Account is disabled' };
+    if (profile.is_locked) {
+      const until = profile.locked_until ? new Date(profile.locked_until) : null;
+      if (!until || until > new Date()) return { active: false, reason: 'Account is locked' };
+    }
+    return { active: true };
+  }
+
+  // Fallback: staff table (no locking concept, just is_active)
+  const { data: staffRow } = await supabaseAdmin
+    .from('staff')
+    .select('is_active')
+    .or(`id.eq.${userId},user_id.eq.${userId}`)
+    .maybeSingle();
+
+  if (staffRow) {
+    accountStateCache.set(userId, {
+      is_active: staffRow.is_active !== false,
+      is_locked: false,
+      locked_until: null,
+      expiresAt: now + ACCOUNT_STATE_TTL_MS,
+    });
+    if (staffRow.is_active === false) return { active: false, reason: 'Staff account is inactive' };
+  }
+
+  // No profile found — allow through (SUPER_ADMIN or first-time login scenario)
+  return { active: true };
+}
+
 async function getSigningKey(kid: string): Promise<string> {
   const key = await jwks.getSigningKey(kid);
   return key.getPublicKey();
@@ -414,8 +481,15 @@ export async function validateAccessToken(accessToken: string): Promise<TokenVal
     return { valid: false, error: 'Token missing required claims' };
   }
 
-  // 2. Extract context from JWT app_metadata (trusting claims to save DB round trip)
-  // Suspended/locked accounts will not be blocked until the token expires (up to 1 hour).
+  // 2. Verify account is active/not-locked in the database.
+  // 30-second TTL cache prevents per-request DB overhead while still
+  // evicting quickly enough for suspension/termination to take effect.
+  const accountState = await getAccountState(decodedToken.sub, decodedToken.email);
+  if (!accountState.active) {
+    return { valid: false, error: accountState.reason ?? 'Account is not active' };
+  }
+
+  // 3. Extract context from JWT app_metadata
   const appMeta = decodedToken.app_metadata || {};
   const userMeta = decodedToken.user_metadata || {};
   const tenantId = appMeta.tenant_id as string | null;

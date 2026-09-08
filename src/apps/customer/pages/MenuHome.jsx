@@ -18,10 +18,9 @@ import { CategoryBubbles } from '../components/CategoryBubbles'
 import { CartBar } from '../components/CartBar'
 import { BottomNav } from '../components/BottomNav'
 import { SkeletonCard } from '../components/SkeletonCard'
-import CartDrawer from './CartDrawer'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getTableNum } from '../utils/tableNum'
-import { getQrSession } from '../utils/qrSession'
+import { getQrSession, getCustomerSession } from '../utils/qrSession'
 
 const DEMO_TENANT_ID = sessionStorage.getItem('qr_tenant_id')
   || import.meta.env.VITE_TENANT_ID
@@ -475,7 +474,7 @@ function MenuItemCard({ item, idx, navigate, handleItemAdd }) {
 // ── Category Card wrapper ─────────────────────────────────────────────────────
 function CategoryCard({ cat, catItems, catIdx, sectionRef, navigate, handleItemAdd }) {
   const style = getCategoryStyle(cat)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(catIdx !== 0)
 
   return (
     <motion.div
@@ -502,6 +501,7 @@ function CategoryCard({ cat, catItems, catIdx, sectionRef, navigate, handleItemA
           justifyContent: 'space-between',
           cursor: 'pointer',
           userSelect: 'none',
+          scrollMarginTop: 185,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -591,7 +591,6 @@ export default function MenuHome() {
   const [stickyVisible,  setStickyVisible]  = useState(false)
   const [navVisible,     setNavVisible]     = useState(true)
   const [lastScrollForNav, setLastScrollForNav] = useState(0)
-  const [cartOpen,       setCartOpen]       = useState(false)
   const [showSearch,     setShowSearch]     = useState(true)
 
   const sectionRefs    = useRef({})
@@ -636,7 +635,7 @@ export default function MenuHome() {
               base_price: price,
               price,
               unit_price: price,
-              is_veg: (i.dietary_tags || []).includes('vegetarian'),
+              is_veg: i.is_veg === true,
               dietary_tags: i.dietary_tags || [],
               image_url: i.image_url,
               sort_order: i.sort_order ?? 0,
@@ -734,6 +733,23 @@ export default function MenuHome() {
   }, [items, vegOnly, searchQuery])
 
   // Scroll spy
+  const scrollToCategory = (catId) => {
+    if (catId === 'all') {
+      isManualScroll.current = true
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setActiveCategory('all')
+      setTimeout(() => { isManualScroll.current = false }, 1200)
+    } else {
+      const el = sectionRefs.current[catId]
+      if (el) {
+        isManualScroll.current = true
+        el.scrollIntoView({ behavior: 'smooth' })
+        setActiveCategory(catId)
+        setTimeout(() => { isManualScroll.current = false }, 1200)
+      }
+    }
+  }
+
   useEffect(() => {
     const STICKY_H = 190
     const onScrollSpy = () => {
@@ -843,7 +859,7 @@ export default function MenuHome() {
           </button>
           <button
             id="header-cart-btn"
-            onClick={() => setCartOpen(true)}
+            onClick={() => navigate('/menu/cart')}
             style={{ position: 'relative', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 10, width: 42, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
             aria-label="Open cart"
           >
@@ -908,23 +924,7 @@ export default function MenuHome() {
               <button
                 key={cat.id}
                 ref={isActive ? activeTabRef : null}
-                onClick={() => {
-                  if (cat.id === 'all') {
-                    isManualScroll.current = true
-                    window.scrollTo({ top: 0, behavior: 'smooth' })
-                    setActiveCategory('all')
-                    setTimeout(() => { isManualScroll.current = false }, 1200)
-                  } else {
-                    const el = sectionRefs.current[cat.id]
-                    if (el) {
-                      isManualScroll.current = true
-                      const y = el.getBoundingClientRect().top + window.scrollY - 185
-                      window.scrollTo({ top: y, behavior: 'smooth' })
-                      setActiveCategory(cat.id)
-                      setTimeout(() => { isManualScroll.current = false }, 1200)
-                    }
-                  }
-                }}
+                onClick={() => scrollToCategory(cat.id)}
                 style={{
                   flexShrink: 0, padding: '8px 18px', borderRadius: 999, border: 'none',
                   background: isActive ? '#E31E24' : 'white',
@@ -1016,18 +1016,15 @@ export default function MenuHome() {
         pointerEvents: stickyVisible ? 'auto' : 'none',
       }}>
         <div style={{ padding: '8px 0' }}>
-          <CategoryBubbles categories={categories} activeCategory={activeCategory} onSelectCategory={setActiveCategory} size="compact" />
+          <CategoryBubbles categories={categories} activeCategory={activeCategory} onSelectCategory={scrollToCategory} size="compact" />
         </div>
       </div>
 
       {/* ── CART FAB ── */}
-      <CartBar visible={navVisible} onOpen={() => setCartOpen(true)} />
+      <CartBar visible={navVisible} onOpen={() => navigate('/menu/cart')} />
 
       {/* ── BOTTOM NAV ── */}
       <BottomNav visible={navVisible} />
-
-      {/* ── CART DRAWER ── */}
-      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
     </div>
   )
 }

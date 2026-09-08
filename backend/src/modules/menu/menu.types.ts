@@ -66,6 +66,7 @@ export interface MenuItem {
   sku:                  string | null;
   status:               MenuItemStatus;
   is_featured:          boolean;
+  is_veg:               boolean;
   image_url:            string | null;
   thumbnail_url:        string | null;
   base_price:           number;   // NUMERIC(12,4) → JS number (safe for display; use string for DB writes)
@@ -101,6 +102,7 @@ export interface ModifierGroup {
   tenant_id:   string;
   name:        string;
   description: string | null;
+  selection_mode: 'single' | 'multiple';
   is_required: boolean;
   min_select:  number;
   max_select:  number | null;
@@ -217,6 +219,7 @@ export interface EffectiveMenuItem {
   prep_time_minutes: number | null;
   is_available:      boolean;          // from override or item status
   is_featured:       boolean;
+  is_veg:            boolean;
   image_url:         string | null;
   thumbnail_url:     string | null;
   sort_order:        number;           // override_sort ?? item sort_order

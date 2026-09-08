@@ -12,14 +12,19 @@ import { supabaseAdmin } from '../../config/supabase';
 import { logger } from '../../shared/utils/logger';
 import { WebSocketManager } from '../transport/websocket.manager';
 
+/**
+ * Single canonical Order FSM.
+ * All order transition validation MUST use this map.
+ * orders.service.ts and order-lifecycle.service.ts both import this.
+ */
 export const VALID_ORDER_TRANSITIONS: Record<ordersRepo.OrderStatus, ordersRepo.OrderStatus[]> = {
-  pending: ['accepted', 'cancelled', 'sync_conflict'],
-  accepted: ['preparing', 'cancelled', 'sync_conflict'],
-  preparing: ['ready', 'cancelled', 'sync_conflict'],
-  ready: ['delivered', 'cancelled', 'sync_conflict'],
-  delivered: ['completed', 'cancelled', 'sync_conflict'],
-  completed: [],
-  cancelled: [],
+  pending:       ['accepted', 'cancelled', 'sync_conflict'],
+  accepted:      ['preparing', 'cancelled', 'sync_conflict'],
+  preparing:     ['ready', 'cancelled', 'sync_conflict'],
+  ready:         ['delivered', 'cancelled', 'sync_conflict'],
+  delivered:     ['completed', 'cancelled', 'sync_conflict'],
+  completed:     [],
+  cancelled:     [],
   sync_conflict: ['pending', 'accepted', 'cancelled'],
 };
 

@@ -14,7 +14,6 @@ import {
   BillAggregationService,
   PaymentIntentService,
   SettlementLifecycleService,
-  SplitBillService,
   RefundService,
   FinancialProjectionService,
 } from './billing.service';
@@ -50,23 +49,6 @@ const voidBillSchema = z.object({
   reason: z.string().min(3),
 });
 
-const splitFractionalSchema = z.object({
-  splitCount: z.number().int().min(2),
-});
-
-const splitItemsSchema = z.object({
-  splitGroups: z.array(
-    z.object({
-      seatNumber: z.number().int().positive(),
-      items: z.array(
-        z.object({
-          billItemId: z.string().uuid(),
-          quantity: z.number().int().positive(),
-        })
-      ).min(1),
-    })
-  ).min(2),
-});
 
 const executeRefundSchema = z.object({
   refundAmountMinor: z.number().int().positive(),
@@ -340,59 +322,6 @@ export async function voidBill(req: any, res: Response, next: any): Promise<void
   }
 }
 
-/**
- * Splits an unpaid bill fractionally (equal split) across N seats.
- */
-export async function splitFractional(req: any, res: Response, next: any): Promise<void> {
-  try {
-    const { id } = req.params;
-    const parsed = splitFractionalSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
-    }
-
-    const tenantId = req.headers['x-tenant-id'] as string || req.context?.tenant_id;
-    if (!tenantId) {
-      throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
-    }
-
-    const childBills = await SplitBillService.splitBillFractionally(tenantId, id, parsed.data.splitCount);
-
-    res.status(200).json({
-      status: 'success',
-      data: { childBills },
-    });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * Splits a parent bill into custom seat-based child bills allocating specific items.
- */
-export async function splitItems(req: any, res: Response, next: any): Promise<void> {
-  try {
-    const { id } = req.params;
-    const parsed = splitItemsSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
-    }
-
-    const tenantId = req.headers['x-tenant-id'] as string || req.context?.tenant_id;
-    if (!tenantId) {
-      throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
-    }
-
-    const childBills = await SplitBillService.splitBillByItems(tenantId, id, parsed.data.splitGroups);
-
-    res.status(200).json({
-      status: 'success',
-      data: { childBills },
-    });
-  } catch (err) {
-    next(err);
-  }
-}
 
 /**
  * Performs a retry-safe, append-only refund recording and status modifications.

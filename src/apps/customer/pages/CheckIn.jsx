@@ -10,15 +10,14 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { fetchWithRuntime, submitMutation } from '../../../lib/apiClient'
 import { getTableNum } from '../utils/tableNum'
-import { getQrSession } from '../utils/qrSession'
+import { getQrSession, getGuestProfile } from '../utils/qrSession'
 import { useSearchParams } from 'react-router-dom'
 
-const TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
+const DEFAULT_TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
 
 // ── Translations ────────────────────────────────────────────────────────────
 const t = {
   EN: {
-    tagline: 'A Rooftop Kitchen',
     welcome: 'Welcome!',
     welcomeBack: (name) => `Welcome back, ${name}! 👋`,
     welcomeBackLabel: 'Welcome back,',
@@ -30,7 +29,6 @@ const t = {
     yourName: 'YOUR NAME',
     namePlaceholder: 'e.g. Rahul Sharma',
     phone: 'PHONE NUMBER',
-    phoneOptional: '(optional)',
     phonePlaceholder: '+91 99000 00000',
     guests: 'NUMBER OF GUESTS',
     checkin: (table) => `Check in to Table ${table}`,
@@ -44,7 +42,6 @@ const t = {
     chefsNoteMsg: "Welcome back! We hope you enjoy today's specials.",
   },
   HI: {
-    tagline: 'एक रूफटॉप रेस्टोरेंट',
     welcome: 'स्वागत है!',
     welcomeBack: (name) => `वापसी पर स्वागत, ${name}! 👋`,
     welcomeBackLabel: 'वापसी पर स्वागत,',
@@ -56,7 +53,6 @@ const t = {
     yourName: 'आपका नाम',
     namePlaceholder: 'जैसे राहुल शर्मा',
     phone: 'फ़ोन नंबर',
-    phoneOptional: '(वैकल्पिक)',
     phonePlaceholder: '+91 99000 00000',
     guests: 'मेहमानों की संख्या',
     checkin: (table) => `टेबल ${table} पर चेक इन करें`,
@@ -203,34 +199,6 @@ function ReturningScreen({ guest, T, lang, setLang, guestCount, setGuestCount, o
           </div>
         </div>
 
-        {/* Guest count */}
-        <div style={{ marginBottom: 24 }}>
-          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12, textAlign: 'center' }}>
-            {T.guests}
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-            <button
-              onClick={() => setGuestCount(c => Math.max(1, c - 1))}
-              style={{
-                width: 44, height: 44, borderRadius: 12, background: 'transparent',
-                border: '1.5px solid #E31E24', color: '#E31E24', fontSize: 22,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >−</button>
-            <span style={{ color: '#E31E24', fontSize: 32, fontWeight: 700, minWidth: 60, textAlign: 'center' }}>
-              {guestCount}
-            </span>
-            <button
-              onClick={() => setGuestCount(c => Math.min(8, c + 1))}
-              style={{
-                width: 44, height: 44, borderRadius: 12, background: '#E31E24',
-                border: 'none', color: 'white', fontSize: 22,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >+</button>
-          </div>
-          <GuestDots count={guestCount} filled="#E31E24" empty="#E5E7EB" />
-        </div>
 
         {/* Chef's note */}
         {(guest.visit_count || 0) > 1 && (
@@ -277,7 +245,7 @@ function ReturningScreen({ guest, T, lang, setLang, guestCount, setGuestCount, o
 
 // ── SCREEN B — New Guest (Warm Card) ─────────────────────────────────────────
 function NewGuestScreen({
-  T, lang, setLang, tableNum, restaurantName,
+  T, lang, setLang, tableNum, floorName, restaurantName,
   name, setName, phone, setPhone,
   guestCount, setGuestCount,
   error, isLoading, checkingPhone,
@@ -303,11 +271,11 @@ function NewGuestScreen({
         <div style={{ color: 'white', fontSize: 24, fontStyle: 'italic', fontWeight: 500 }}>
           {restaurantName || 'Menu'}
         </div>
-        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 4 }}>{T.tagline}</div>
         <div style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(217,119,6,0.15)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: 20, padding: '5px 14px' }}>
           <span style={{ color: '#FBBF24', fontSize: 8 }}>●</span>
           <span style={{ color: '#FBBF24', fontSize: 12, fontWeight: 600 }}>
-            {T.table} {tableNum} · Floor 3
+            {T.table} {String(tableNum || '').replace(/^table\s+/i, '')}
+            {floorName ? (/^\d+$/.test(String(floorName)) ? ` · Floor ${floorName}` : ` · ${floorName}`) : ''}
           </span>
         </div>
       </div>
@@ -359,7 +327,7 @@ function NewGuestScreen({
         {/* Phone field */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-            {T.phone} <span style={{ color: '#9CA3AF', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>{T.phoneOptional}</span>
+            {T.phone} <span style={{ color: '#E31E24', fontWeight: 700 }}>*</span>
           </label>
           <div style={{ position: 'relative' }}>
             <span style={{
@@ -398,34 +366,6 @@ function NewGuestScreen({
           )}
         </div>
 
-        {/* Guest count */}
-        <div style={{ marginBottom: 24 }}>
-          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
-            {T.guests}
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <button
-              onClick={() => setGuestCount(c => Math.max(1, c - 1))}
-              style={{
-                width: 44, height: 44, borderRadius: 12,
-                border: '1.5px solid #E31E24', background: 'transparent',
-                color: '#E31E24', fontSize: 22, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >−</button>
-            <span style={{ color: '#E31E24', fontSize: 32, fontWeight: 700 }}>{guestCount}</span>
-            <button
-              onClick={() => setGuestCount(c => Math.min(8, c + 1))}
-              style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: '#E31E24', border: 'none',
-                color: 'white', fontSize: 22, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >+</button>
-          </div>
-          <GuestDots count={guestCount} filled="#D97706" empty="#E5E7EB" />
-        </div>
 
         {/* Check-in button */}
         <button
@@ -464,7 +404,9 @@ export default function CheckIn({ onComplete }) {
   // null = unknown | false = new guest | object = returning guest
 
   const [searchParams] = useSearchParams()
-  const { restaurantName } = getQrSession(searchParams)
+  const { restaurantName, tenantId: qrTenantId, floorName } = getQrSession(searchParams)
+  
+  const TENANT_ID = qrTenantId || DEFAULT_TENANT_ID
 
   const T = t[lang]
   const tableNum = getTableNum()
@@ -473,9 +415,7 @@ export default function CheckIn({ onComplete }) {
   // This is the reliable local fallback when Supabase RLS blocks anonymous inserts
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('guestProfile')
-      if (!raw) return
-      const profile = JSON.parse(raw)
+      const profile = getGuestProfile(TENANT_ID)
       if (profile?.phone && profile?.name) {
         console.log('[CheckIn] Found local guest profile:', profile.name)
         setPhone(profile.phone)
@@ -494,26 +434,13 @@ export default function CheckIn({ onComplete }) {
     const digits = phoneVal.replace(/\D/g, '')
     if (digits.length < 10) return
     setCheckingPhone(true)
-    try {
-      // 1. Try unified backend API first
-      const res = await fetchWithRuntime(`/api/v1/customer/guest-sessions/lookup?phone=${encodeURIComponent(phoneVal.trim())}&tenant_id=${TENANT_ID}`)
-      if (res.ok) {
-        const { data } = await res.json()
-        if (data) {
-          console.log('[CheckIn] Returning guest found in backend:', data.name)
-          setReturningGuest(data)
-          setName(data.name)
-          setCheckingPhone(false)
-          return
-        }
-      }
-    } catch { /* no backend record — try localStorage */ }
+    // 1. Backend lookup removed. We now rely on localStorage for returning guest detection
+    // and identify the customer on submit.
 
     // 2. Fallback: check localStorage guestProfile
     try {
-      const raw = localStorage.getItem('guestProfile')
-      if (raw) {
-        const profile = JSON.parse(raw)
+      const profile = getGuestProfile(TENANT_ID)
+      if (profile) {
         const stored = profile?.phone?.replace(/\D/g, '')
         const entered = phoneVal.replace(/\D/g, '')
         if (stored && stored === entered) {
@@ -540,43 +467,74 @@ export default function CheckIn({ onComplete }) {
       setError(T.nameError)
       return
     }
+    const finalPhone = phone.trim()
+    if (!finalPhone) {
+      setError('Please enter a valid phone number')
+      return
+    }
+    
     setIsLoading(true)
     setError('')
 
+    let customerId = null;
+
     try {
-      // Upsert guest session if phone provided
-      if (phone.trim()) {
-        await submitMutation('/api/v1/runtime/mutations', {
-          mutation_id: 'upsert_guest_session',
-          idempotency_key: crypto.randomUUID(),
-          payload: {
-            tenant_id: TENANT_ID,
-            phone: phone.trim(),
-            name: finalName
-          }
-        })
+      // 1. Identify/Create Persistent Customer
+      const res = await submitMutation(`/api/v1/customer/identify`, {
+        mutation_id: 'identify_customer',
+        idempotency_key: crypto.randomUUID(),
+        payload: {
+          tenantId: TENANT_ID,
+          phoneNumber: finalPhone,
+          name: finalName
+        }
+      })
+      
+      const body = await res.json()
+      if (body.data?.customerId) {
+        customerId = body.data.customerId;
       }
+
+      // 2. Upsert guest session (anonymous session state required for occupancy projections)
+      const qrContext = await import('../utils/qrSession').then(m => m.getQrSession());
+      
+      await submitMutation('/api/v1/runtime/mutations', {
+        mutation_id: 'upsert_guest_session',
+        idempotency_key: crypto.randomUUID(),
+        payload: {
+          tenant_id: TENANT_ID,
+          phone: finalPhone,
+          name: finalName,
+          customer_id: customerId,
+          table_id: qrContext.tableId,
+          branch_id: qrContext.branchId
+        }
+      })
     } catch (err) {
-      console.warn('[CheckIn] guest_sessions upsert failed (non-fatal):', err.message)
+      console.error('[CheckIn] Check-in failed:', err.message)
+      setError('Failed to check in. Please try again.')
+      setIsLoading(false)
+      return
     }
 
     // Save guest profile to localStorage for reliable local returning-guest detection
-    // This works even if Supabase RLS blocks anonymous inserts
     try {
-      const existingRaw = localStorage.getItem('guestProfile')
-      const existingProfile = existingRaw ? JSON.parse(existingRaw) : {}
+      const existingProfile = getGuestProfile(TENANT_ID) || {}
       const newVisitCount = (existingProfile.visit_count || 0) + 1
       localStorage.setItem('guestProfile', JSON.stringify({
+        tenantId: TENANT_ID,
         name: finalName,
-        phone: phone.trim(),
+        phone: finalPhone,
         visit_count: newVisitCount,
         lastVisitAt: new Date().toISOString(),
       }))
     } catch { /* ignore */ }
 
     const session = {
+      tenantId: TENANT_ID,
       name: finalName,
-      phone: phone.trim(),
+      phone: finalPhone,
+      customerId,
       guestCount,
       tableNum,
       lang,
@@ -611,6 +569,7 @@ export default function CheckIn({ onComplete }) {
             lang={lang}
             setLang={setLang}
             tableNum={tableNum}
+            floorName={floorName}
             restaurantName={restaurantName}
             name={name}
             setName={setName}

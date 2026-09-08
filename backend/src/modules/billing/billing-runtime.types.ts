@@ -15,7 +15,6 @@ export interface BillDTO {
   branch_id: string;
   table_id: string | null;
   session_id: string | null;
-  parent_bill_id: string | null;
   bill_number: string;
   status: BillStatus;
   subtotal_minor: number;
@@ -116,17 +115,6 @@ export interface RefundDTO {
   created_at: string;
 }
 
-export interface SplitAllocationDTO {
-  id: string;
-  tenant_id: string;
-  bill_id: string;
-  split_bill_id: string;
-  bill_item_id: string | null;
-  allocated_quantity: number | null;
-  allocated_percentage: number | null;
-  amount_minor: number;
-  created_at: string;
-}
 
 export interface ReceiptSnapshotDTO {
   id: string;

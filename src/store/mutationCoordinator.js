@@ -14,11 +14,9 @@ export const MutationStatus = {
   BLOCKED: 'BLOCKED',
 };
 
-// Types of mutations that must NOT auto-rebase on conflict
 const FINANCIAL_MUTATIONS = [
   'SETTLE_PAYMENT',
   'REFUND_PAYMENT',
-  'SPLIT_BILL',
   'CLOSE_ORDER',
   'TRANSFER_ORDER' // Table reassignment might be safe, but order transfer implies billing implications
 ];

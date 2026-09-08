@@ -26,7 +26,9 @@ export interface Order {
   branch_id: string;
   table_id: string;
   session_id: string | null;
+  table_session_id: string | null;
   cart_id: string | null;
+  customer_id: string | null;
   order_snapshot_id: string;
   order_number: string;
   status: OrderStatus;
@@ -64,7 +66,9 @@ export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'c
       branch_id: payload.branch_id,
       table_id: payload.table_id,
       session_id: payload.session_id,
+      table_session_id: payload.table_session_id,
       cart_id: payload.cart_id,
+      customer_id: payload.customer_id,
       order_snapshot_id: payload.order_snapshot_id,
       order_number: payload.order_number,
       status: payload.status,
@@ -91,7 +95,7 @@ export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'c
 export async function getOrderById(tenantId: string, id: string): Promise<Order | null> {
   let query = supabaseAdmin
     .from('orders')
-    .select('*, tables(display_name, table_number), snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
+    .select('*, tables(display_name, table_number), snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(id, menu_item_id, item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
     .eq('id', id);
 
   if (tenantId) {
@@ -101,17 +105,10 @@ export async function getOrderById(tenantId: string, id: string): Promise<Order 
   const { data, error } = await query.maybeSingle();
 
   if (error || !data) {
-    // Fallback to query order by id directly
+    // Fallback: plain orders without the snapshot join
     let plainQuery = supabaseAdmin.from('orders').select('*').eq('id', id);
     if (tenantId) plainQuery = plainQuery.eq('tenant_id', tenantId);
     const { data: plain, error: plainErr } = await plainQuery.maybeSingle();
-    
-    // If still null, try without tenant_id constraint as secondary fallback
-    if (!plain && tenantId) {
-      const { data: globalPlain } = await supabaseAdmin.from('orders').select('*').eq('id', id).maybeSingle();
-      if (globalPlain) return globalPlain as Order | null;
-    }
-    
     if (plainErr) throw new AppError(`Failed to fetch order: ${plainErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
     return plain as Order | null;
   }
@@ -120,6 +117,7 @@ export async function getOrderById(tenantId: string, id: string): Promise<Order 
     const snapItems: any[] = data.snapshot?.items || [];
     const items = snapItems.map((i: any) => ({
       id: i.id || '',
+      menu_item_id: i.menu_item_id || '',
       name: i.item_name_snapshot,
       qty: i.quantity,
       unit_price: (i.unit_price_minor || 0) / 100,
@@ -165,7 +163,7 @@ export async function listOrdersByBranch(
 
   let query = supabaseAdmin
     .from('orders')
-    .select('*, snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
+    .select('*, snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(id, menu_item_id, item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .gte('created_at', sevenDaysAgo.toISOString());
@@ -188,6 +186,7 @@ export async function listOrdersByBranch(
     const snapItems: any[] = order.snapshot?.items || [];
     const items = snapItems.map((i: any) => ({
       id: i.id || '',
+      menu_item_id: i.menu_item_id || '',
       name: i.item_name_snapshot,
       qty: i.quantity,
       unit_price: (i.unit_price_minor || 0) / 100,
@@ -250,6 +249,21 @@ export async function updateOrderStatus(
   }
 
   return data as Order;
+}
+
+export async function getOrdersByTableSession(tenantId: string, tableSessionId: string): Promise<Order[]> {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('table_session_id', tableSessionId)
+    .neq('status', 'cancelled'); // Typically we exclude cancelled orders for billing
+
+  if (error) {
+    throw new AppError(`Failed to fetch orders by table session: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  }
+
+  return data as Order[];
 }
 
 export async function createStateHistory(payload: {

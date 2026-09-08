@@ -1,0 +1,872 @@
+[
+  {
+    "id": "03e3fcf0-d974-4823-beda-e4f52188d2b2",
+    "name": "Choice of Dosa",
+    "category": "Breakfast"
+  },
+  {
+    "id": "a8ef8362-7ac5-4670-9c8e-ed04e1be2464",
+    "name": "Egg Preparation",
+    "category": "Breakfast"
+  },
+  {
+    "id": "1517f900-beca-4475-8ac0-685418cbcf8e",
+    "name": "Boiled Egg",
+    "category": "Breakfast"
+  },
+  {
+    "id": "724adb8b-0b61-49dc-b4e5-aa28659eda89",
+    "name": "Fried Egg",
+    "category": "Breakfast"
+  },
+  {
+    "id": "f5c69f9c-9bbb-4e11-a74d-267df03c41a4",
+    "name": "Omelette",
+    "category": "Breakfast"
+  },
+  {
+    "id": "dc0f2688-d368-4dd6-8347-60e471b6e143",
+    "name": "Cereals With Milk",
+    "category": "Breakfast"
+  },
+  {
+    "id": "2af85516-5b04-44ad-a235-b5c0959b488f",
+    "name": "Bread Toast",
+    "category": "Breakfast"
+  },
+  {
+    "id": "5d81e844-696a-4690-9b48-da8a8f00e2fb",
+    "name": "Poha",
+    "category": "Breakfast"
+  },
+  {
+    "id": "90c147d6-80a5-4d6f-a1a1-bf59ec915ef0",
+    "name": "Paratha",
+    "category": "Breakfast"
+  },
+  {
+    "id": "8ffad625-ce44-4b17-8a3a-73acc4333383",
+    "name": "Poori Bhaji",
+    "category": "Breakfast"
+  },
+  {
+    "id": "9d423678-7520-4e47-bc57-78172de6c817",
+    "name": "Idli",
+    "category": "Breakfast"
+  },
+  {
+    "id": "a5dcadb6-ca62-45e7-8541-b4a5262fac28",
+    "name": "Fresh Fruits",
+    "category": "Breakfast"
+  },
+  {
+    "id": "7544f9eb-24ea-4d9a-bfe0-7abb52b1104c",
+    "name": "Canned Juice",
+    "category": "Breakfast"
+  },
+  {
+    "id": "d9b74a14-3697-437d-8402-28193ae13e99",
+    "name": "Canned Soft Drink (300ml)",
+    "category": "Breakfast"
+  },
+  {
+    "id": "f55be3e5-ff0e-4a94-9ff7-afc1b121ec5c",
+    "name": "Plain Curd",
+    "category": "Breakfast"
+  },
+  {
+    "id": "b1949c70-99dd-4bce-a4b5-981c9899b955",
+    "name": "Tea",
+    "category": "Breakfast"
+  },
+  {
+    "id": "c08a570d-0a0f-4503-bcd9-0fc2da6d3d86",
+    "name": "Bageeche Ka Salad",
+    "category": "Salad"
+  },
+  {
+    "id": "2c2dedca-64aa-41f6-b65e-2a8159f931fc",
+    "name": "Onion Salad",
+    "category": "Salad"
+  },
+  {
+    "id": "9e958133-f146-43b2-a3a7-38b09983188e",
+    "name": "Fruit Salad",
+    "category": "Salad"
+  },
+  {
+    "id": "6bc735d8-1684-4c9a-baaa-522c68d856f9",
+    "name": "Pineapple/Fruits",
+    "category": "Raita"
+  },
+  {
+    "id": "42f24e50-0fe0-445c-8b32-5ff6ceae1d22",
+    "name": "Boondi",
+    "category": "Raita"
+  },
+  {
+    "id": "16d0212d-db12-490f-b9e0-dbcbe8f49119",
+    "name": "Mix Veg.",
+    "category": "Raita"
+  },
+  {
+    "id": "45739dee-c0fe-43cd-ae45-1240741998f0",
+    "name": "Mushroom Soup",
+    "category": "Soup (Veg.)"
+  },
+  {
+    "id": "6e14c71b-400f-4f4b-bd23-2d3749c7448c",
+    "name": "Kaju Fry",
+    "category": "Snacks (Veg.)"
+  },
+  {
+    "id": "70e7ff2e-1651-4fa0-a345-d5fcb347954e",
+    "name": "Kashmiri Murgh Tikka",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "bf02c69c-7de3-4caa-9779-edf2b1912a4b",
+    "name": "Coffee",
+    "category": "Breakfast"
+  },
+  {
+    "id": "86ab9b0d-4692-4178-bae0-d9c5e73a2a29",
+    "name": "Cucumber Salad",
+    "category": "Salad"
+  },
+  {
+    "id": "656f1301-9f6b-486f-b093-c55cd913fc31",
+    "name": "Cucumber",
+    "category": "Raita"
+  },
+  {
+    "id": "71a0944e-0c7d-40e3-8aea-4f9003cfa52d",
+    "name": "Veg. Sweet Corn Soup",
+    "category": "Soup (Veg.)"
+  },
+  {
+    "id": "f355fee9-f0e1-4cf9-8573-46d77b926c0b",
+    "name": "Veg. Manchow Soup",
+    "category": "Soup (Veg.)"
+  },
+  {
+    "id": "a9642c16-299d-445b-9726-53c8e6d325dd",
+    "name": "Veg. Hot & Sour Soup",
+    "category": "Soup (Veg.)"
+  },
+  {
+    "id": "cc2c2d12-d6ab-41ee-8b78-be77372152e2",
+    "name": "Tomato Soup",
+    "category": "Soup (Veg.)"
+  },
+  {
+    "id": "f1c38225-8cd9-4fa2-b97e-cd4e8422037b",
+    "name": "Veg. Cutlet (4Pc)",
+    "category": "Snacks (Veg.)"
+  },
+  {
+    "id": "2d4ec6f5-dec8-4123-a811-86e5ca137071",
+    "name": "Hara Bhara Kebab",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "5aa39116-4133-4963-bcc6-69a7a41cf7b3",
+    "name": "Chicken Veg. Noodles Soup",
+    "category": "Soup (Non Veg.)"
+  },
+  {
+    "id": "52fc5db1-7300-48cd-8ca7-1508bfa7a4ee",
+    "name": "Chicken Hot & Sour Soup",
+    "category": "Soup (Non Veg.)"
+  },
+  {
+    "id": "6cbb6192-8689-48c6-8c8a-c9768c816aca",
+    "name": "Chicken Sweet Corn Soup",
+    "category": "Soup (Non Veg.)"
+  },
+  {
+    "id": "37435b00-ef58-41c7-8ded-fb497a545560",
+    "name": "Chicken Manchow Soup",
+    "category": "Soup (Non Veg.)"
+  },
+  {
+    "id": "d4d5afd4-b667-4007-80da-eda8125566d1",
+    "name": "Paneer Pakoda",
+    "category": "Snacks (Veg.)"
+  },
+  {
+    "id": "2c99341f-b4ac-483b-8e27-d343c7f36c23",
+    "name": "Malai Paneer Tikka",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "2021bfde-4bf4-425a-85c4-72450eafacaa",
+    "name": "Non Veg. Kebab Platter (9Pc)",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "3ad220c1-0caa-42ac-97c0-2ebde0f5dc8e",
+    "name": "Veg. Pakoda",
+    "category": "Snacks (Veg.)"
+  },
+  {
+    "id": "88a04e2e-0c44-46df-b2d7-db5e97369ce1",
+    "name": "Veg. Kebab Platter (9Pc.)",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "231297ee-08a5-4641-bbcc-e45024f274f0",
+    "name": "Tandoori Mushroom Tikka",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "260a9978-d354-43ba-9042-c6f39a1d9bd5",
+    "name": "French Fries",
+    "category": "Snacks (Veg.)"
+  },
+  {
+    "id": "890657aa-64bb-4daa-8ab4-704847db0e58",
+    "name": "Hariyali Paneer Tikka",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "3a7bb5ef-0181-4a13-bdec-8bf5b28ea9d5",
+    "name": "Dahi Ke Kebab",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "ec35bd8c-696f-48ec-a9c6-f219cc7367ff",
+    "name": "Garlic Crispy Potato",
+    "category": "Snacks (Veg.)"
+  },
+  {
+    "id": "de6361e1-cc41-40bb-9f33-299383210abb",
+    "name": "Multani Paneer (Gharana Special)",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "648a3d53-35bb-4936-91b5-10d5aad400fe",
+    "name": "Paneer Tikka",
+    "category": "Starter Veg. (Tandoori)"
+  },
+  {
+    "id": "49f9db0e-cf4e-4873-9776-397daca3aec5",
+    "name": "Lahsooni Murgh Tikka",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "78c9091e-f241-4774-a7aa-efaa4e130196",
+    "name": "Pahadi Murgh Tikka",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "0b8436b2-3995-4132-91e4-da527c3b1671",
+    "name": "Chicken Tikka",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "a5d3143d-0686-4fe2-9351-e0e35a1e0372",
+    "name": "Murgh Reshmi Seek",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "6526d3cb-0ec7-4046-a094-ca492293694f",
+    "name": "Murg Malai Tikka",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "89e82ba9-1de8-47f6-9ac4-0482a09cf96b",
+    "name": "Fish Tikka",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "2a49219a-db0e-4ca1-8ff0-6b1a8a30ec69",
+    "name": "Chicken Noodles",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "24cde13a-38a9-45b2-833a-069c793a9815",
+    "name": "Chicken 65",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "9555d55f-f215-4f71-b3f4-a27ebe84954a",
+    "name": "Lemon Chicken",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "4a8844b7-7be4-4cd1-a021-9c09e153d754",
+    "name": "Chicken Fried Rice",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "a86bafcf-5b45-449a-b688-09f0bebe00e3",
+    "name": "Drums Of Heaven (Chicken Wings)",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "598274c7-efb9-4cdc-8cf5-659b357ea78a",
+    "name": "Chicken Lollypop",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "da3bcef3-f74e-474e-a466-a549b1a552a5",
+    "name": "Pepper Chilly Fish",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "4768c685-74fe-46a9-a74c-08c514fcd392",
+    "name": "Egg Fried Rice",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "973bdf20-3bd0-4e6e-a928-053272f20ea2",
+    "name": "Egg Noodles",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  },
+  {
+    "id": "ad08ffdd-9388-4adb-9bbb-c6211ea62183",
+    "name": "Veg. Manchurian",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "6c99e1f1-4f3e-4fa5-8eef-b21b3f5a2976",
+    "name": "Paneer Noodle",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "21d4e706-4e9d-4591-a6c6-4ab315b43d64",
+    "name": "Paneer Tikka Masala",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "22e310ff-1b47-4b7c-be70-6d805902d8cf",
+    "name": "Punjabi Kadhai Paneer",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "3a8904eb-56fd-44eb-9791-29f1cf45840d",
+    "name": "Subz Handi - Mix Vegetables",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "e894f5b7-4778-4a79-b0ee-d478219f6e04",
+    "name": "Aaj Ki Special Sabzi",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "8b9c561b-edc0-4f4c-ba56-cf32be6ed48c",
+    "name": "Punjabi Butter Chicken Boneless (8Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "2c3ed6e2-230f-499d-b3fd-15b64e151c70",
+    "name": "Egg Curry (2Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "a2199796-cf0c-4f92-9658-ef1e2dc87f4c",
+    "name": "Chicken Biryani",
+    "category": "Biryani Lucknow"
+  },
+  {
+    "id": "cf822c3a-f2d4-457f-85c5-36ac88a594a9",
+    "name": "Aerated Drinks",
+    "category": "Drinks"
+  },
+  {
+    "id": "3786e16a-aa99-48ae-b30c-71d278a08376",
+    "name": "Cold Coffee",
+    "category": "Drinks"
+  },
+  {
+    "id": "f0cb1b76-404f-44bc-a435-ad06019d4a25",
+    "name": "Crispy Corn",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "c6387f31-38dd-417f-ad3e-e7d4c45d208a",
+    "name": "Schezwan Noodles",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "c0a85e88-6db1-4ca9-a694-d838de79f7b1",
+    "name": "Chilly Paneer",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "cb2f0128-72d9-4189-81f4-d126fe36200d",
+    "name": "Matar Paneer",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "e684b962-8262-4a78-a97e-5db94b155963",
+    "name": "Chicken Tikka Masala (8/4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "fd78e78b-21d6-4f6a-a1c1-3f079d366d66",
+    "name": "Mutton Biryani",
+    "category": "Biryani Lucknow"
+  },
+  {
+    "id": "b3838991-eee5-455f-9720-7d2bc841a880",
+    "name": "Kashmiri Pulao",
+    "category": "Choice of Rice"
+  },
+  {
+    "id": "8ff276de-ff46-4085-a997-82f2c77f96b1",
+    "name": "Plain Naan",
+    "category": "Breads"
+  },
+  {
+    "id": "b8752191-d59e-4e1d-83fd-691baf1aa5b1",
+    "name": "Stuffed Amritsari Naan (Aloo/Pyaza/Paneer)",
+    "category": "Breads"
+  },
+  {
+    "id": "743258dd-bb4a-4044-a31a-bb83d63ff95a",
+    "name": "Pista Ice Cream",
+    "category": "Desserts"
+  },
+  {
+    "id": "164c1893-da03-4acb-adae-73743d0c0d02",
+    "name": "Gharana Special Mocktail",
+    "category": "Drinks"
+  },
+  {
+    "id": "fdf22932-411c-4b68-8d0b-6c48371bb58f",
+    "name": "Chilly Baby Corn",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "b36dc208-9913-4352-b0af-4710fdb6a3c1",
+    "name": "Vegetable Noodles",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "adcb5de5-0d2b-4f84-bcdf-ccd33b940c1c",
+    "name": "Veg. Thai Roll",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "b528dfff-1107-4ce7-88f6-34b930ac5703",
+    "name": "Paneer Moti Masala",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "095f604e-7764-4bce-9755-7322a267aa53",
+    "name": "Gharana Spl. Thali",
+    "category": "Only For Room Service"
+  },
+  {
+    "id": "ba09a998-e112-4cff-9429-6564d1ff7b34",
+    "name": "Khichdi (Dahi, Papad)",
+    "category": "Biryani Lucknow"
+  },
+  {
+    "id": "5ffa5b1a-2f9e-4781-b57a-49ce123ecf7f",
+    "name": "Paneer Pulao",
+    "category": "Choice of Rice"
+  },
+  {
+    "id": "08249f26-51c4-4b38-9307-143f9edea58d",
+    "name": "Butter Naan",
+    "category": "Breads"
+  },
+  {
+    "id": "25016f1f-b082-4c68-9042-7bcb259b93f6",
+    "name": "Tawa Roti",
+    "category": "Breads"
+  },
+  {
+    "id": "8cace05e-0e61-4f2e-821f-a82c3cf93130",
+    "name": "Chocolate Brownie",
+    "category": "Desserts"
+  },
+  {
+    "id": "f8fb3386-624b-4c1b-a332-7352cbb87577",
+    "name": "Desserts Of The Day",
+    "category": "Desserts"
+  },
+  {
+    "id": "05927c47-108e-473a-be3d-823d670592d7",
+    "name": "Masala Tea",
+    "category": "Drinks"
+  },
+  {
+    "id": "1384b0bf-dbce-4b1b-b518-1c6d8cbab4d6",
+    "name": "Mint Mojito",
+    "category": "Drinks"
+  },
+  {
+    "id": "139956c9-1ae7-47ac-8b39-09b6eb2740e7",
+    "name": "Honey Chilli Potato",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "0d91c847-9729-4e64-96a4-813d224a5c1a",
+    "name": "Chilly Garlic Noodle",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "b8a01231-5dfa-4d45-b17b-645f99663926",
+    "name": "Dehati Murgh (6/4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "442c4b47-3cb0-4bbd-b6c0-a162e2613dac",
+    "name": "Teen Mirch Ka Murgh (6/4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "b1b2bd50-0dc9-4aed-a572-8d6ff811be53",
+    "name": "Bhuna Gosht (4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "26e88bdc-4a5d-4c0c-b17a-60dadd9d00b3",
+    "name": "Gharana Spl. Non-Veg.",
+    "category": "Only For Room Service"
+  },
+  {
+    "id": "df2d9b9f-d63a-4ad8-859a-39517e9cf545",
+    "name": "Curd Rice",
+    "category": "Biryani Lucknow"
+  },
+  {
+    "id": "913a5ebc-9282-4326-ad1a-e7d52722f40e",
+    "name": "Jeera Rice",
+    "category": "Choice of Rice"
+  },
+  {
+    "id": "a5e78603-f9da-4443-84d9-9048ec02088c",
+    "name": "Paratha (Laccha/Pudina)",
+    "category": "Breads"
+  },
+  {
+    "id": "83faadcf-a77d-4472-8565-a753dd3ce27f",
+    "name": "Vanilla Ice Cream",
+    "category": "Desserts"
+  },
+  {
+    "id": "490d842d-e1c2-43f2-a182-edcead9cffd4",
+    "name": "Tuti Fruti",
+    "category": "Desserts"
+  },
+  {
+    "id": "a6e0301f-9477-41c3-8d4c-d5ce0737dbef",
+    "name": "Fresh Lime Soda",
+    "category": "Drinks"
+  },
+  {
+    "id": "503fb064-e3f9-48d8-be5f-4a61481a1111",
+    "name": "Mango Masala",
+    "category": "Drinks"
+  },
+  {
+    "id": "fb98f57d-6afd-43d6-9e9a-11e228154c72",
+    "name": "Spicy Chilly Potato",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "8c35abae-292b-4f3d-97a3-b688514d12c6",
+    "name": "Vegetable Chowmein",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "6f42f573-a74c-49e0-84dc-51f1251a396c",
+    "name": "Banarasi Malai Kofta",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "0b51c2f2-e09f-4f46-aa5d-3953929eaf38",
+    "name": "Dal Fry",
+    "category": "Dal / Dal Fry"
+  },
+  {
+    "id": "afe62d3a-59ad-4d58-bbf4-4b478fe4efde",
+    "name": "Rajasthani Laal Maans (4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "48900ef9-73b1-41d3-948b-6d6615de0703",
+    "name": "Peas Pulao",
+    "category": "Choice of Rice"
+  },
+  {
+    "id": "576a1500-df58-45c4-8ff9-5b6f2d414737",
+    "name": "Tandoori Roti (Plain)",
+    "category": "Breads"
+  },
+  {
+    "id": "4db57d20-7224-41c5-9553-856a4719b6b5",
+    "name": "Garlic Naan",
+    "category": "Breads"
+  },
+  {
+    "id": "ac680c8a-aa55-4b3b-81e7-77ab39b266f7",
+    "name": "Strawberry Ice Cream",
+    "category": "Desserts"
+  },
+  {
+    "id": "1ddf946d-2ef6-4c81-8b76-ef6ec48cd875",
+    "name": "Moong Dal Halwa",
+    "category": "Desserts"
+  },
+  {
+    "id": "4200c26b-1c61-41b0-899a-d7a94202f1fb",
+    "name": "Butter Milk",
+    "category": "Drinks"
+  },
+  {
+    "id": "6fe23db0-3a10-4750-9a08-8d534eac699e",
+    "name": "Brownie Shake",
+    "category": "Drinks"
+  },
+  {
+    "id": "73dab55d-a64a-421e-a6d9-bc496f2fcf75",
+    "name": "Hakka Noodles",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "ade85204-418b-46e7-a80d-82716b50facb",
+    "name": "Veg. Fried Rice",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "b281ea42-50c6-42ad-a7f8-2552911413b1",
+    "name": "Chilly Mushroom",
+    "category": "Chinese Kitchen (Veg.)"
+  },
+  {
+    "id": "ba312377-33aa-49c5-b6f7-49bff43a73e7",
+    "name": "Veg. Kofta Curry",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "18ce0acf-0d5f-4210-a98a-ab431471e0d6",
+    "name": "Paneer Butter Masala",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "ae6790b0-c062-4421-bb4c-bbce3886119c",
+    "name": "Paneer Lababdar",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "4e9eb6d4-bb70-4922-9129-c0c1ecb334f0",
+    "name": "Lucknow Ka Paneer Do Pyaza",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "cfa929d4-1e1f-426f-bf06-be23f62a7984",
+    "name": "Navratna Korma (Gharana Special)",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "18ff4d50-5ae5-4bd2-9395-0948ee437add",
+    "name": "Gharana Special Kaju Curry",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "10a80f49-3deb-4ac6-897b-fa27753b2b54",
+    "name": "Aloo Do Pyaza",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "8984a123-eff8-415e-8e74-d75d01d1de2b",
+    "name": "Chatapata Mushroom Masala",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "c11c45bc-f0c6-4633-8b33-e66b931e5a54",
+    "name": "Jungle Murgh (6/4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "afb8ad8c-0763-4026-a488-827243d7aacb",
+    "name": "Punjabi Butter Chicken With Bone (6/4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "821b069d-97c6-429c-9a03-a31a79c358c8",
+    "name": "Kadhai Chicken (6/4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "fd33c931-8f80-47cd-b813-1cd512397e61",
+    "name": "Mutton Rogan Josh (4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "8e44b6f5-1511-4af1-ae86-e877d42a8cd5",
+    "name": "Murgh Lahori (8Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "29b617c1-3a91-4996-a658-3a71ec88be1d",
+    "name": "Chicken Taka-Tak (8Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "23a4deb6-bd72-4c03-b6e5-30f9658592fd",
+    "name": "Egg Curry (4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "c0a65590-71b9-4b22-8212-5ef373fa3d34",
+    "name": "Veg. Biryani",
+    "category": "Biryani Lucknow"
+  },
+  {
+    "id": "deb5f7e4-312b-4484-9b8a-74c5b0eb3085",
+    "name": "Masala Coke",
+    "category": "Drinks"
+  },
+  {
+    "id": "f8337c7d-b83f-45d1-ba72-e80379713757",
+    "name": "Chatpate Palak Paneer",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "1c32fb95-8be0-4e19-8f0a-7eed4b38b731",
+    "name": "Paneer Taka-Tak (Gharana Special)",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "5ca09b87-1191-474c-acc4-80f5c364ce86",
+    "name": "Mushroom Do Pyaza",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "3ef49d10-3639-4f1d-b9fb-da60c0015dd8",
+    "name": "Matar Mushroom Masala",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "6667305f-43d9-407b-8e25-aa9dbb2eeb6c",
+    "name": "Aloo Gobhi Adraki",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "a6421140-8e17-426e-a086-fc28c980751c",
+    "name": "Aloo Jeera",
+    "category": "Indian Curry Veg."
+  },
+  {
+    "id": "1ad0e88c-bf4a-4abd-968d-33dd43e287f0",
+    "name": "Dal Tadka",
+    "category": "Dal / Dal Fry"
+  },
+  {
+    "id": "382325ba-7ba0-42fb-a0f7-882f533558c0",
+    "name": "Dal Makhani",
+    "category": "Dal / Dal Fry"
+  },
+  {
+    "id": "44940527-49c9-48bc-9ce8-1451d52583ab",
+    "name": "Murgh Musallam (8Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "f07b63bf-ecd0-4b0d-ac1c-1e798349e09b",
+    "name": "Murgh Musallam (4Pc)",
+    "category": "Indian Curry (Non Veg.)"
+  },
+  {
+    "id": "fbe16c88-b032-424e-889e-77e27ee0cb36",
+    "name": "Egg Biryani",
+    "category": "Biryani Lucknow"
+  },
+  {
+    "id": "512edf64-6463-4c19-9a50-460c1ef29804",
+    "name": "Shikanji",
+    "category": "Drinks"
+  },
+  {
+    "id": "2e11f090-6b51-440e-aaa9-cef61f6675df",
+    "name": "Strawberry Shake",
+    "category": "Drinks"
+  },
+  {
+    "id": "88e485ec-c3f0-4bfc-b27c-47df37772867",
+    "name": "Vanilla Shake",
+    "category": "Drinks"
+  },
+  {
+    "id": "3928e7f7-d268-447c-bca2-807fb51a7732",
+    "name": "Canned Cold Drink",
+    "category": "Drinks"
+  },
+  {
+    "id": "1a895718-bbe1-4919-8732-ff322aae83f6",
+    "name": "Safed Basmati",
+    "category": "Choice of Rice"
+  },
+  {
+    "id": "5bd6eb63-8e24-40b6-9d67-ebdf78b0fa07",
+    "name": "Chocolate Brownie With Ice Cream",
+    "category": "Desserts"
+  },
+  {
+    "id": "c1c1762a-048c-4bbb-a455-05d8f5f05732",
+    "name": "Blue Lagoon",
+    "category": "Drinks"
+  },
+  {
+    "id": "d3a7ca34-456a-4af9-bab0-5a86ed482eb0",
+    "name": "Chocolate Shake",
+    "category": "Drinks"
+  },
+  {
+    "id": "e526d62a-0a3b-4a3b-b219-b6c38b04a6ea",
+    "name": "Mineral Bottle Water",
+    "category": "Drinks"
+  },
+  {
+    "id": "1e8cfd78-335d-4517-94cf-330bc37d1a4a",
+    "name": "Vegetable Pulao",
+    "category": "Choice of Rice"
+  },
+  {
+    "id": "cfc89bb1-f8c3-4923-a419-fc219f3774f2",
+    "name": "Tandoori Roti (Butter)",
+    "category": "Breads"
+  },
+  {
+    "id": "d2d984ff-073f-401b-8215-b5b68c5a1188",
+    "name": "Cheese Naan",
+    "category": "Breads"
+  },
+  {
+    "id": "fd6a4b3a-b408-42d5-94c3-205034f216db",
+    "name": "Chocolate Ice Cream",
+    "category": "Desserts"
+  },
+  {
+    "id": "dd386034-bb29-4b8a-a028-7b821ff0f389",
+    "name": "Stuffed Gulab Jamun",
+    "category": "Desserts"
+  },
+  {
+    "id": "ebc34ebf-d00a-497a-8f66-ef45a6c6abce",
+    "name": "Sweet Lassi",
+    "category": "Drinks"
+  },
+  {
+    "id": "d284625f-2cc4-43a1-ac80-5e8fc6a712c5",
+    "name": "Mango Shake",
+    "category": "Drinks"
+  },
+  {
+    "id": "9ce97965-4aea-4006-80ca-70d3f564d44f",
+    "name": "Tandoori Chicken",
+    "category": "Starter Non Veg. (Tandoori)"
+  },
+  {
+    "id": "5d7e7b4f-aea8-4a6e-9495-d35b6304036a",
+    "name": "Chilly Chicken",
+    "category": "Chinese Kitchen (Non-Veg.)"
+  }
+]

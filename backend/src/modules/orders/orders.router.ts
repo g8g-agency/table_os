@@ -17,6 +17,8 @@ import {
   getAvailableStaff,
   acceptOrderAlert,
   reassignOrderAlert,
+  createDirectOrder,
+  assignWaiterHandler,
 } from './orders.controller';
 
 import type { Request, Response, NextFunction } from 'express';
@@ -34,6 +36,9 @@ function requireQrOrStaffAuth(req: Request, res: Response, next: NextFunction) {
 // Customers or staff can checkout an existing cart
 router.post('/checkout', requireQrOrStaffAuth, requireMutationEnvelope(), requestIdempotency(), checkoutCart);
 
+// Staff can create a direct order
+router.post('/direct', authenticate, requireMutationEnvelope(), requestIdempotency(), createDirectOrder);
+
 // ── Order Alert routes (P3-STAFF-01) ────────────────────────────────────────
 // IMPORTANT: Static GET paths MUST be declared before /:id to avoid being
 // swallowed by the parameterised route (Express matches top-down).
@@ -50,6 +55,10 @@ router.get('/:id', requireQrOrStaffAuth, getOrderDetails);
 router.patch('/:id/status', authenticate, requireMutationEnvelope(), transitionStatus);
 router.patch('/:id/accept', authenticate, acceptOrderAlert);
 router.patch('/:id/reassign', authenticate, reassignOrderAlert);
+
+// Staff waiter self-assignment — separate from kitchen status transition
+// Body: { idempotency_key: string }
+router.post('/:id/assign_waiter', authenticate, assignWaiterHandler);
 
 
 export { router as ordersRouter };

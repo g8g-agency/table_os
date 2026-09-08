@@ -80,7 +80,7 @@ export class TableQRService {
     // 1. Resolve active token -> table context (legacy table_qr_tokens or permanent tables.qr_token)
     let tokenData: { id?: string; tenant_id: string; table_id: string; access_count?: number } | null = null;
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(publicToken);
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(publicToken);
 
     if (isUuid) {
       // Permanent non-expiring QR codes (table_id IS the QR code)
@@ -144,7 +144,7 @@ export class TableQRService {
     // 2. Resolve Table context (Ensure it is NOT deleted/inactive)
     const { data: tableData, error: tableError } = await this.supabase
       .from('tables')
-      .select('id, branch_id, table_number, display_name, is_active, deleted_at')
+      .select('id, branch_id, table_number, display_name, is_active, deleted_at, table_floors(name)')
       .eq('id', tokenData.table_id)
       .eq('tenant_id', tokenData.tenant_id)
       .single();
@@ -250,7 +250,8 @@ export class TableQRService {
       table: { 
         id: tableData.id, 
         table_number: tableData.table_number,
-        display_name: tableData.display_name
+        display_name: tableData.display_name,
+        table_floors: tableData.table_floors
       },
       guestSession,
       customer_identity_id: guestSession.guest_identifier ?? customerIdentityId,

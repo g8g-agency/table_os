@@ -470,39 +470,66 @@ export default function KitchenDisplay() {
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleAccept = async (order) => {
+    // Optimistic update
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'preparing' } : o))
+    showToast(`👨‍🍳 Order ${order.id.slice(0, 6).toUpperCase()} — cooking started`)
+
     try {
       const { error } = await supabase
         .from('orders')
         .update({ status: 'preparing' })
         .eq('id', order.id)
-      if (error) { console.error('[KDS] Accept failed:', error); return }
-      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'preparing' } : o))
-      showToast(`👨‍🍳 Order ${order.id.slice(0, 6).toUpperCase()} — cooking started`)
+      
+      if (error) { 
+        console.error('[KDS] Accept failed:', error)
+        // Revert on failure
+        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: order.status } : o))
+      }
     } catch (err) {
       console.error('[KDS] Accept exception:', err)
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: order.status } : o))
     }
   }
 
   const handleMarkReady = async (order) => {
-    await supabase.from('orders').update({ status: 'ready' }).eq('id', order.id)
+    // Optimistic update
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'ready' } : o))
     showToast(`🔔 Order ${order.id.slice(0, 6).toUpperCase()} is READY!`)
+
+    const { error } = await supabase.from('orders').update({ status: 'ready' }).eq('id', order.id)
+    if (error) {
+      console.error('[KDS] Mark ready failed:', error)
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: order.status } : o))
+    }
   }
 
   const handleToggleItem = async (item) => {
     const newDone = !item.done
     const newStatus = newDone ? 'accepted' : 'pending'
-    await supabase.from('order_items').update({ done: newDone, status: newStatus }).eq('id', item.id)
+    
+    // Optimistic update
     setOrders(prev => prev.map(o => ({
       ...o,
       order_items: (o.order_items || []).map(i =>
         i.id === item.id ? { ...i, done: newDone, status: newStatus } : i
       ),
     })))
+
+    const { error } = await supabase.from('order_items').update({ done: newDone, status: newStatus }).eq('id', item.id)
+    if (error) {
+      console.error('[KDS] Toggle item failed:', error)
+      // Revert on failure
+      setOrders(prev => prev.map(o => ({
+        ...o,
+        order_items: (o.order_items || []).map(i =>
+          i.id === item.id ? { ...i, done: item.done, status: item.status } : i
+        ),
+      })))
+    }
   }
 
   const handleRejectItem = async (item) => {
-    await supabase.from('order_items').update({ is_rejected: true, done: false }).eq('id', item.id)
+    // Optimistic update
     setOrders(prev => prev.map(o => ({
       ...o,
       order_items: (o.order_items || []).map(i =>
@@ -510,6 +537,17 @@ export default function KitchenDisplay() {
       ),
     })))
     showToast(`✕ Item "${item.name}" marked unavailable`)
+
+    const { error } = await supabase.from('order_items').update({ is_rejected: true, done: false }).eq('id', item.id)
+    if (error) {
+      console.error('[KDS] Reject item failed:', error)
+      setOrders(prev => prev.map(o => ({
+        ...o,
+        order_items: (o.order_items || []).map(i =>
+          i.id === item.id ? { ...i, is_rejected: item.is_rejected, done: item.done } : i
+        ),
+      })))
+    }
   }
 
   // ── Filtering + sorting ───────────────────────────────────────────────────

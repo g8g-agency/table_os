@@ -41,7 +41,61 @@ router.post('/cart/recommendations', async (req: Request, res: Response, next: N
   }
 });
 
+router.get('/guest-sessions/lookup', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const phone = req.query.phone as string;
+    const tenantId = req.query.tenant_id as string;
+    if (!phone || !tenantId) {
+      res.status(400).json({ success: false, error: 'phone and tenant_id are required' });
+      return;
+    }
+
+    const { data: customer } = await supabaseAdmin
+      .from('customers')
+      .select('name, phone')
+      .eq('tenant_id', tenantId)
+      .eq('phone', phone)
+      .single();
+
+    if (customer) {
+      res.json({ success: true, data: customer });
+      return;
+    }
+    
+    res.json({ success: true, data: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
 import { CustomerService } from './customer.service';
+import { supabaseAdmin } from '../../config/supabase';
+
+const IdentifyCustomerSchema = z.object({
+  tenantId: z.string().uuid(),
+  phoneNumber: z.string().min(1),
+  name: z.string().optional(),
+  email: z.string().email().optional(),
+});
+
+router.post('/identify', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // If sent via MutationGateway, the data is in req.body.payload
+    const data = req.body.payload || req.body;
+    const body = IdentifyCustomerSchema.parse(data);
+    
+    const customer = await CustomerService.identifyCustomer({
+      tenant_id: body.tenantId,
+      phone_number: body.phoneNumber,
+      name: body.name,
+      email: body.email,
+    });
+    
+    res.json(formatSuccess({ customerId: customer.id }));
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/orders/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {

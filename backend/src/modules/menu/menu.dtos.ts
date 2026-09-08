@@ -88,6 +88,7 @@ export interface CreateMenuItemDto {
   prep_time_minutes?:    number | null;
   sort_order?:           number;
   is_featured?:          boolean;
+  is_veg?:               boolean;
   image_url?:            string | null;
   thumbnail_url?:        string | null;
   modifier_group_ids?:   string[] | null;  // Link existing groups at creation
@@ -109,6 +110,7 @@ export interface UpdateMenuItemDto {
   prep_time_minutes?:    number | null;
   sort_order?:           number;
   is_featured?:          boolean;
+  is_veg?:               boolean;
   status?:               MenuItemStatus;
   image_url?:            string | null;
   thumbnail_url?:        string | null;
@@ -120,6 +122,7 @@ export interface UpdateMenuItemDto {
 export interface CreateModifierGroupDto {
   name:         string;
   description?: string;
+  selection_mode?: 'single' | 'multiple';
   is_required?: boolean;
   min_select?:  number;
   max_select?:  number | null;
@@ -130,6 +133,7 @@ export interface CreateModifierGroupDto {
 export interface UpdateModifierGroupDto {
   name?:        string;
   description?: string | null;
+  selection_mode?: 'single' | 'multiple';
   is_required?: boolean;
   min_select?:  number;
   max_select?:  number | null;

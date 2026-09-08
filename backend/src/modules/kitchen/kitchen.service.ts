@@ -341,7 +341,7 @@ export async function handleParentOrderCancelled(tenantId: string, orderId: stri
     .update({ status: 'cancelled', updated_by: userId })
     .eq('tenant_id', tenantId)
     .eq('order_id', orderId)
-    .neq('status', 'completed')
+    .neq('status', 'delivered')
     .neq('status', 'cancelled');
 
   if (error) {

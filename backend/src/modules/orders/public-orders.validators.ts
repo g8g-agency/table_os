@@ -18,6 +18,8 @@ export const PublicCheckoutItemSchema = z.object({
 export const PublicCheckoutSchema = z.object({
   items: z.array(PublicCheckoutItemSchema).min(1),
   order_notes: z.string().max(1000).optional(),
+  customer_id: z.string().uuid().optional(),
+  payment_method: z.enum(['cash', 'upi']).optional(),
 }).strict();
 
 export type PublicCheckoutInput = z.infer<typeof PublicCheckoutSchema>;

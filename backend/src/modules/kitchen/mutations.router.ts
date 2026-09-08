@@ -28,9 +28,10 @@ function formatMutationResponse(res: Response, status: number, data: any, ctx: a
 }
 
 router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), async (req: any, res: Response, next: any) => {
-  console.log('MUTATION RECEIVED:', JSON.stringify(req.body.type));
+  const payload = req.body.payload || req.body;
+  console.log('MUTATION RECEIVED:', JSON.stringify(payload.type));
   console.log('SESSION ID:', req.mutationContext?.session_id);
-  console.log('RUNTIME SESSION:', req.body.runtimeSessionId);
+  console.log('RUNTIME SESSION:', payload.runtimeSessionId);
   
   const ctx = req.mutationContext!;
   try {
@@ -38,8 +39,8 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
     if (!tenantId) {
       throw new AppError('Missing tenant context.', 400, ErrorCode.BAD_REQUEST);
     }
-
-    const { type, orderId } = req.body;
+    const payload = req.body.payload || req.body;
+    const { type, orderId } = payload;
     if (!orderId) {
       throw new AppError('orderId is required in mutation payload', 400, ErrorCode.VALIDATION_ERROR);
     }
@@ -56,19 +57,32 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
     } else if (type === 'KITCHEN_RECALL_TICKET') {
       targetStatus = 'preparing';
     } else if (type === 'KITCHEN_REJECT_ORDER') {
+       console.log('\n=========================================');
+       console.log('CANCEL REQUEST');
+       console.log('→ mutation ID:', ctx.mutation_id);
+       console.log('→ received ticketId:', orderId);
+       
        const ticketDetails = await kitchenService.getKitchenOrderTicket(tenantId, orderId);
-       if (!ticketDetails) throw new AppError('Ticket not found', 404, ErrorCode.NOT_FOUND);
+       if (!ticketDetails) {
+         console.log('→ ticket not found');
+         throw new AppError('Ticket not found', 404, ErrorCode.NOT_FOUND);
+       }
+       console.log('→ parent order ID:', ticketDetails.order_id);
+       console.log('→ current ticket status:', ticketDetails.status);
 
        if (ticketDetails.status === 'cancelled') {
+         console.log('→ already cancelled ticket. Resolving.');
          void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
          return formatMutationResponse(res, 200, { ticket: ticketDetails }, ctx);
        }
 
        const order = await ordersRepo.getOrderById(tenantId, ticketDetails.order_id);
        if (!order) throw new AppError('Parent order not found', 404, ErrorCode.NOT_FOUND);
+       console.log('→ parent order status BEFORE:', order.status);
 
        const TERMINAL_STATES = ['completed', 'delivered', 'cancelled'];
        if (TERMINAL_STATES.includes(order.status)) {
+         console.log('→ parent order already in terminal state:', order.status);
          void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
          return res.status(200).json({
            success: true,
@@ -83,6 +97,7 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
          });
        }
 
+       console.log('→ Executing transitionOrderStatus to cancelled...');
        const parentOrder = await ordersService.transitionOrderStatus({
          tenantId,
          orderId: ticketDetails.order_id,
@@ -92,8 +107,13 @@ router.post('/', authenticate, requireMutationEnvelope(), requestIdempotency(), 
          reason: 'Rejected by Kitchen',
          additionalFields: { cancellation_reason: 'Rejected by Kitchen' }
        });
+       console.log('→ DB status after mutation:', parentOrder.status);
 
        ticket = await kitchenService.getKitchenOrderTicket(tenantId, orderId);
+       console.log('→ Kitchen ticket status after mutation:', ticket.status);
+       
+       console.log('=========================================\n');
+       
        void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
        return formatMutationResponse(res, 200, { order: parentOrder, ticket }, ctx);
     } else {

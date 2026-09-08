@@ -21,6 +21,7 @@ const checkoutSchema = z.object({
   tableId: z.string().uuid(),
   orderNotes: z.string().max(1000).optional(),
   customerName: z.string().max(255).optional(),
+  customerId: z.string().uuid().optional(),
 });
 
 const directOrderSchema = z.object({
@@ -33,6 +34,7 @@ const directOrderSchema = z.object({
   })).min(1),
   orderNotes: z.string().max(1000).optional(),
   customerName: z.string().max(255).optional(),
+  customerId: z.string().uuid().optional(),
 });
 
 const transitionStatusSchema = z.object({
@@ -75,7 +77,7 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
       throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
     }
 
-    const { cartId, tableId, orderNotes, customerName } = parsed.data;
+    const { cartId, tableId, orderNotes, customerName, customerId } = parsed.data;
 
     // Determine context tenant_id, qr session
     const tenantId = ctx.tenant_id || req.headers['x-tenant-id'] || req.qrSession?.tenantId;
@@ -98,6 +100,7 @@ export async function checkoutCart(req: any, res: Response, next: any): Promise<
       source,
       userId: req.context?.id,
       customerName,
+      customerId,
     });
 
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
@@ -121,7 +124,7 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
       throw new AppError('Validation failed', 400, ErrorCode.VALIDATION_ERROR, true, parsed.error.format());
     }
 
-    const { tableId, items, orderNotes, customerName } = parsed.data;
+    const { tableId, items, orderNotes, customerName, customerId } = parsed.data;
 
     // Determine context tenant_id, qr session
     const tenantId = ctx.tenant_id || req.headers['x-tenant-id'] || req.qrSession?.tenantId;
@@ -155,6 +158,7 @@ export async function createDirectOrder(req: any, res: Response, next: any): Pro
       source,
       userId: req.context?.id,
       customerName,
+      customerId,
     });
 
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
@@ -335,6 +339,45 @@ export async function reassignOrderAlert(req: any, res: Response, next: any): Pr
 
     await ordersService.reassignOrder({ tenantId, orderId, fromStaffId, toStaffId, branchId });
     res.status(200).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Assign Waiter (Staff notification acceptance → table assignment) ───────
+// POST /api/v1/orders/:id/assign_waiter
+// Body: { idempotency_key: string }
+//
+// This is the Staff App's "ACCEPT" button mutation.
+// It does NOT change the order status — that belongs to the kitchen.
+// It ONLY records which waiter is serving this table.
+//
+export async function assignWaiterHandler(req: any, res: Response, next: any): Promise<void> {
+  try {
+    const orderId  = req.params.id;
+    const tenantId = req.context?.tenantId;
+    const staffId  = req.body?.staff_id || req.context?.id || req.context?.userId; // Fallback to JWT sub
+
+    if (!tenantId || !staffId) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Staff authentication required' } });
+      return;
+    }
+
+    // idempotency_key must be supplied by the client to prevent double-assignment on retry
+    const idempotencyKey = req.body?.idempotency_key || req.headers['idempotency-key'] as string;
+    if (!idempotencyKey) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'idempotency_key is required in body or Idempotency-Key header' } });
+      return;
+    }
+
+    const result = await ordersService.assignWaiter({
+      tenantId,
+      orderId,
+      staffId,
+      idempotencyKey,
+    });
+
+    res.status(200).json({ success: true, data: result });
   } catch (err) {
     next(err);
   }

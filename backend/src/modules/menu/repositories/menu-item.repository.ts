@@ -247,6 +247,7 @@ export async function createMenuItem(
     prep_time_minutes: dto.prep_time_minutes ?? null,
     sort_order:        dto.sort_order ?? 0,
     is_featured:       dto.is_featured ?? false,
+    is_veg:            dto.is_veg ?? false,
     image_url:         dto.image_url ?? null,
     thumbnail_url:     dto.thumbnail_url ?? null,
     created_by:        createdBy,
@@ -464,4 +465,32 @@ export async function findModifierGroupIdsForItem(
     throw new Error(`[MenuItemRepo] findModifierGroupIdsForItem: ${error.message}`);
   }
   return (data ?? []).map((r) => r.modifier_group_id);
+}
+
+export async function findModifierGroupIdsForItems(
+  tenantId: string,
+  itemIds: string[]
+): Promise<Map<string, string[]>> {
+  if (itemIds.length === 0) return new Map();
+
+  const { data, error } = await supabaseAdmin
+    .from('menu_item_modifier_groups')
+    .select('menu_item_id, modifier_group_id')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .in('menu_item_id', itemIds)
+    .order('display_order', { ascending: true });
+
+  if (error) {
+    throw new Error(`[MenuItemRepo] findModifierGroupIdsForItems: ${error.message}`);
+  }
+
+  const map = new Map<string, string[]>();
+  for (const row of data ?? []) {
+    const arr = map.get(row.menu_item_id) || [];
+    arr.push(row.modifier_group_id);
+    map.set(row.menu_item_id, arr);
+  }
+  
+  return map;
 }

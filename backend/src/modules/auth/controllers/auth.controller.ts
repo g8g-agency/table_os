@@ -26,6 +26,7 @@ import { AuthenticationError } from '../../../shared/errors/AppError';
 import { env } from '../../../config/env';
 import { ResponseFormatter } from '../../../shared/utils/response-formatter';
 import { listUserSessions } from '../../rbac/services/session.service';
+import { logger } from '../../../shared/utils/logger';
 
 /** Use req.ip — trust proxy is set in app.ts */
 function getIp(req: Request): string {
@@ -200,6 +201,7 @@ export async function exchangeRuntimeSession(
       )
     );
   } catch (err) {
+    logger.error({ err, branchId: req.body.branch_id }, 'Runtime exchange failed');
     next(err);
   }
 }

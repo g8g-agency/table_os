@@ -6,25 +6,21 @@ import { runtime } from '../../../runtime'
 import { SupabaseTransportAdapter } from '../../../runtime/transport/SupabaseTransportAdapter'
 import { supabase } from '../../../lib/supabase'
 import { BottomNav } from '../components/BottomNav'
-import { getQrSession } from '../utils/qrSession'
+import { getQrSession, getCustomerSession } from '../utils/qrSession'
 import ReviewModal from '../components/ReviewModal'
 import { useRef } from 'react'
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
 
-const getSession = () => {
-  try { return JSON.parse(localStorage.getItem('customerSession') || '{}') }
-  catch { return {} }
-}
-
 export default function OrdersPage() {
-  const session  = getSession()
   const { tenantId, tableId } = getQrSession()
   const activeTenantId = tenantId || TENANT_ID
+  const session  = getCustomerSession(activeTenantId)
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [errorState, setErrorState] = useState(null)
   
+  const [searchQuery, setSearchQuery] = useState('')
   const [reviewOrderId, setReviewOrderId] = useState(null)
   const prevOrdersRef = useRef([])
 
@@ -120,8 +116,11 @@ export default function OrdersPage() {
 
   if (!session.name) {
     return (
-      <div style={{ padding: '60px 24px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: '#E31E24', marginBottom: 8 }}>Your Orders</h1>
+      <div style={{ padding: '24px 24px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1F2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="material-symbols-outlined" onClick={() => window.history.back()} style={{ cursor: 'pointer' }}>arrow_back</span>
+          Your Orders
+        </h1>
         <div style={{ padding: '24px', background: '#FEF2F2', border: '1.5px solid #F87171', color: '#991B1B', borderRadius: 16, textAlign: 'center', marginTop: 32 }}>
            <span style={{ fontSize: 14, fontWeight: 600 }}>No active session found.</span>
            <p style={{ fontSize: 13, marginTop: 4, opacity: 0.8 }}>Please check-in to see your order history.</p>
@@ -131,10 +130,41 @@ export default function OrdersPage() {
     )
   }
 
+  const filteredOrders = orders.filter(order => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return order.order_items?.some(item => item.name.toLowerCase().includes(q)) || 
+           order.id.toLowerCase().includes(q);
+  });
+
   return (
-    <div style={{ padding: '60px 24px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, color: '#E31E24', marginBottom: 4 }}>Your Orders</h1>
-      <p style={{ margin: '0 0 32px', fontSize: 14, color: '#6C757D', fontWeight: 500 }}>Active orders for {session.name}</p>
+    <div style={{ padding: '24px 16px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: '#F9FAFB', minHeight: '100vh' }}>
+      <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1F2937', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span className="material-symbols-outlined" onClick={() => window.history.back()} style={{ cursor: 'pointer' }}>arrow_back</span>
+        Your Orders
+      </h1>
+
+      <div style={{ position: 'relative', marginBottom: 24 }}>
+        <span className="material-symbols-outlined" style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#6C757D', fontSize: 20 }}>search</span>
+        <input 
+          type="text" 
+          placeholder="Search by dish or order ID" 
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ 
+            width: '100%', 
+            padding: '14px 16px 14px 48px', 
+            borderRadius: 12, 
+            border: '1px solid #E5E7EB',
+            background: 'white',
+            fontSize: 15,
+            outline: 'none',
+            fontFamily: 'inherit',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }} 
+        />
+        <span className="material-symbols-outlined" style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#6C757D', fontSize: 20 }}>mic</span>
+      </div>
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '64px 0' }}>
@@ -144,44 +174,36 @@ export default function OrdersPage() {
       ) : null}
 
       {errorState && (
-        <div className="min-h-screen bg-gray-50 pb-20 font-sans">
-          <div className="bg-white p-4 shadow-sm mb-6 flex justify-between items-center sticky top-0 z-10">
-            <h1 className="text-xl font-bold tracking-tight text-red-600">Sync Error</h1>
+        <div className="flex flex-col items-center justify-center p-8 mt-12 text-center bg-white rounded-2xl shadow-sm border border-gray-100">
+          <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-6">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
-          <div className="flex flex-col items-center justify-center p-8 mt-12 text-center">
-            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-6">
-              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold mb-2">We couldn't load your orders</h3>
-            <p className="text-gray-500 mb-6 text-sm">
-              {errorState}
-            </p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="bg-black text-white px-6 py-3 rounded-xl font-medium w-full shadow active:scale-95 transition-transform"
-            >
-              Try Again
-            </button>
-          </div>
-          <BottomNav active="orders" />
+          <h3 className="text-lg font-semibold mb-2">We couldn't load your orders</h3>
+          <p className="text-gray-500 mb-6 text-sm">{errorState}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="bg-black text-white px-6 py-3 rounded-xl font-medium w-full shadow active:scale-95 transition-transform"
+          >
+            Try Again
+          </button>
         </div>
       )}
 
       {!errorState && !loading && orders.length === 0 && (
-        <div style={{ padding: '80px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+        <div style={{ padding: '80px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'white', borderRadius: 16, border: '1px solid #F3F4F6' }}>
+          <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#F9FAFB', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#9CA3AF' }}>restaurant</span>
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 800, color: '#E31E24', margin: '0 0 8px' }}>No orders yet</h3>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1F2937', margin: '0 0 8px' }}>No orders yet</h3>
           <p style={{ fontSize: 14, color: '#6C757D', lineHeight: 1.5 }}>Your delicious picks will appear here once you place them.</p>
         </div>
       )}
 
-      {!errorState && !loading && orders.length > 0 && (
+      {!errorState && !loading && filteredOrders.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {orders.map(order => (
+          {filteredOrders.map(order => (
             <OrderCard key={order.id} order={order} onReview={() => setReviewOrderId(order.id)} />
           ))}
         </div>
@@ -206,9 +228,9 @@ function OrderCard({ order, onReview }) {
   const navigate = useNavigate()
   const isActive = ['pending', 'accepted', 'preparing', 'ready'].includes(order.status)
 
-  // Issue 10: download invoice as plain-text
   const downloadInvoice = () => {
-    const session = JSON.parse(localStorage.getItem('customerSession') || '{}')
+    const { tenantId: activeTenantId } = getQrSession()
+    const session = getCustomerSession(activeTenantId || TENANT_ID)
     const subtotal = (order.order_items || [])
       .reduce((sum, i) => sum + ((i.unit_price || 0) * (i.qty || 0)), 0)
     const tax = order.tax_amount || 0
@@ -248,126 +270,148 @@ function OrderCard({ order, onReview }) {
     URL.revokeObjectURL(url)
   }
   
-
   const statusMap = {
-    pending:  { bg: 'rgba(27,43,75,0.05)', color: '#E31E24', label: 'Placed', icon: 'check_circle' },
-    accepted: { bg: 'rgba(27,43,75,0.05)', color: '#E31E24', label: 'Accepted', icon: 'thumb_up' },
-    preparing:{ bg: 'rgba(249,115,22,0.1)', color: '#E31E24', label: 'Preparing', icon: 'skillet' },
-    ready:    { bg: 'rgba(34,197,94,0.1)', color: '#16A34A', label: 'Ready!', icon: 'shopping_bag' },
-    delivered:{ bg: '#F3F4F6', color: '#6C757D', label: 'Served', icon: 'done_all' },
-    completed:{ bg: '#F3F4F6', color: '#6C757D', label: 'Completed', icon: 'done_all' },
-    cancelled:{ bg: '#FEF2F2', color: '#EF4444', label: 'Cancelled', icon: 'cancel' },
-    rejected: { bg: '#FEE2E2', color: '#EF4444', label: 'Rejected', icon: 'cancel' },
-    sync_conflict: { bg: '#FEF2F2', color: '#EF4444', label: 'Sync Conflict', icon: 'error' }
+    pending:  { color: '#E31E24', label: 'Placed', actionText: 'Track Order' },
+    accepted: { color: '#E31E24', label: 'Accepted', actionText: 'Track Order' },
+    preparing:{ color: '#E31E24', label: 'Preparing', actionText: 'Track Order' },
+    ready:    { color: '#16A34A', label: 'Ready!', actionText: 'Track Order' },
+    delivered:{ color: '#6C757D', label: 'Delivered', actionText: 'Download Invoice' },
+    completed:{ color: '#6C757D', label: 'Completed', actionText: 'Download Invoice' },
+    cancelled:{ color: '#EF4444', label: 'Cancelled', actionText: 'View Details' },
+    rejected: { color: '#EF4444', label: 'Rejected', actionText: 'View Details' },
+    sync_conflict: { color: '#EF4444', label: 'Sync Conflict', actionText: 'Contact Staff' }
   }
 
   const s = statusMap[order.status] || statusMap.pending
 
   return (
     <div
-      onClick={isActive ? () => navigate('/menu/track/' + order.id) : undefined}
-      onTouchStart={isActive ? e => e.currentTarget.style.transform = 'scale(0.97)' : undefined}
-      onTouchEnd={isActive ? e => e.currentTarget.style.transform = 'scale(1)' : undefined}
+      onClick={() => navigate('/menu/track/' + order.id)}
       style={{ 
         background: 'white', 
         borderRadius: 16, 
-        border: isActive ? '1.5px solid #E31E24' : '1px solid #F3F4F6', 
-        padding: 16, 
-        boxShadow: isActive ? '0 8px 24px rgba(27,43,75,0.06)' : 'none',
-        position: 'relative',
-        cursor: isActive ? 'pointer' : 'default',
-        transition: 'transform 0.15s ease',
+        border: '1px solid #E5E7EB', 
+        padding: '16px 20px', 
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+        cursor: 'pointer',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        <div>
-          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Order #{order.id.split('-')[0].toUpperCase()}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-            <span style={{ fontSize: 18, fontWeight: 800, color: '#E31E24' }}>₹{order.total_amount}</span>
-            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#D1D5DB' }} />
-            <span style={{ fontSize: 13, color: '#6C757D', fontWeight: 500 }}>{order.order_items?.length || 0} Items</span>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#E31E24' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 24 }}>restaurant</span>
           </div>
-        </div>
-        
-        <div style={{ textAlign: 'right' }}>
-          <span style={{ fontSize: 11, color: '#9CA3AF' }}>
-            {new Date(order.created_at).toLocaleDateString()}
-          </span>
-          <div style={{ fontSize: 12, color: '#6C757D', fontWeight: 600 }}>
-            {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1F2937' }}>Table Order #{String(order.id).split('-')[0].toUpperCase()}</div>
+            <div style={{ fontSize: 13, color: '#6C757D', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Dining Session
+              <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#E31E24' }}>chevron_right</span>
+            </div>
           </div>
-        </div>
-        
-        <div style={{ background: s.bg, color: s.color, padding: '6px 12px', borderRadius: 10, fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{s.icon}</span>
-          {s.label.toUpperCase()}
         </div>
       </div>
 
+      <div style={{ height: 1, background: '#F3F4F6', margin: '0 -20px 16px -20px' }} />
 
+      {/* Items */}
       {order.order_items && (
-        <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 16 }}>
           {order.order_items.map(item => (
-            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, color: '#E31E24', fontWeight: 700 }}>{item.qty}x</span>
-                <span style={{ fontSize: 13, color: '#4B5563', fontWeight: 500 }}>{item.name}</span>
+            <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ 
+                width: 16, height: 16, border: '1.5px solid #22C55E', borderRadius: 4, 
+                display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22C55E' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#1F2937' }}>{item.qty} x {item.name}</div>
                 {item.status === 'out_of_stock' && (
-                  <span style={{
-                    background: '#FEE2E2', color: '#EF4444',
-                    fontSize: '10px', fontWeight: '700',
-                    padding: '2px 6px', borderRadius: '12px',
-                    marginLeft: '6px'
-                  }}>Out of Stock</span>
+                  <div style={{ fontSize: 13, color: '#EF4444', marginTop: 4 }}>Out of Stock</div>
                 )}
               </div>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#E31E24' }}>₹{item.unit_price * item.qty}</span>
             </div>
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        {/* Issue 10: Download Invoice button */}
-        <button
-          onClick={(e) => { e.stopPropagation(); downloadInvoice() }}
-          style={{
-            background: 'white', border: '1.5px solid #E31E24',
-            borderRadius: '10px', padding: '8px 14px',
-            color: '#E31E24', fontSize: '12px', fontWeight: '600',
-            cursor: 'pointer', display: 'flex', alignItems: 'center',
-            gap: '6px', flex: 1, justifyContent: 'center'
-          }}
-        >
-          ⬇ Download Invoice
-        </button>
+      <div style={{ borderTop: '1px dashed #E5E7EB', margin: '0 -20px 16px -20px' }} />
 
-        {/* Feature 3: Review Button */}
-        {(order.status === 'completed' || order.status === 'served') && (
-          localStorage.getItem(`reviewed_${order.id}`) ? (
-            <div style={{
-              background: '#F3F4F6', borderRadius: '10px', padding: '8px 14px',
-              color: '#6C757D', fontSize: '12px', fontWeight: '600',
-              display: 'flex', alignItems: 'center', gap: '6px', flex: 1, justifyContent: 'center'
-            }}>
-              ✓ Reviewed
-            </div>
-          ) : (
-            <button
-              onClick={(e) => { e.stopPropagation(); onReview(); }}
-              style={{
-                background: '#E31E24', border: 'none',
-                borderRadius: '10px', padding: '8px 14px',
-                color: 'white', fontSize: '12px', fontWeight: '600',
-                cursor: 'pointer', display: 'flex', alignItems: 'center',
-                gap: '6px', flex: 1, justifyContent: 'center'
-              }}
-            >
-              ⭐ Rate Order
-            </button>
+      {/* Footer Info */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, color: '#6C757D', marginBottom: 4 }}>
+            Order placed on {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: s.color }}>
+            {s.label}
+          </div>
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#1F2937', display: 'flex', alignItems: 'center', gap: 2 }}>
+          ₹{order.total_amount}
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#9CA3AF' }}>chevron_right</span>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        {(!isActive) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); downloadInvoice() }}
+            style={{
+              background: '#F3F4F6', border: 'none',
+              borderRadius: 8, padding: '10px 16px',
+              color: '#4B5563', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: 6, flex: 1, justifyContent: 'center'
+            }}
+          >
+            Download Invoice
+          </button>
+        )}
+
+        {isActive ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate('/menu/track/' + order.id) }}
+            style={{
+              background: '#FEF2F2', border: '1px solid #FECACA',
+              borderRadius: 8, padding: '10px 16px',
+              color: '#E31E24', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: 6, flex: 1, justifyContent: 'center'
+            }}
+          >
+            Track Order
+          </button>
+        ) : (
+          (order.status === 'completed' || order.status === 'served' || order.status === 'delivered') && (
+            localStorage.getItem(`reviewed_${order.id}`) ? (
+              <div style={{
+                background: 'white', border: '1px solid #E5E7EB', borderRadius: 8, padding: '10px 16px',
+                color: '#9CA3AF', fontSize: 13, fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center'
+              }}>
+                Reviewed
+              </div>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); onReview(); }}
+                style={{
+                  background: '#E31E24', border: 'none',
+                  borderRadius: 8, padding: '10px 16px',
+                  color: 'white', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  gap: 6, flex: 1, justifyContent: 'center'
+                }}
+              >
+                Rate Order
+              </button>
+            )
           )
         )}
       </div>
     </div>
   )
 }
+

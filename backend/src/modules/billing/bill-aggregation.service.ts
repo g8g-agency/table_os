@@ -21,9 +21,8 @@ export class BillAggregationService {
     tableId: string | null;
     sessionId: string | null;
     orderIds: string[];
-    parentBillId?: string | null;
   }): Promise<BillDTO> {
-    const { tenantId, branchId, tableId, sessionId, orderIds, parentBillId = null } = params;
+    const { tenantId, branchId, tableId, sessionId, orderIds } = params;
 
     if (orderIds.length === 0) {
       throw new AppError('Cannot aggregate empty order list into a bill.', 400, ErrorCode.VALIDATION_ERROR);
@@ -157,7 +156,6 @@ export class BillAggregationService {
           branch_id: branchId,
           table_id: tableId,
           session_id: sessionId,
-          parent_bill_id: parentBillId,
           bill_number: billNumber,
           status: 'UNPAID',
           subtotal_minor: totalSubtotal,

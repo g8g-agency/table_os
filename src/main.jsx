@@ -47,7 +47,6 @@ import {
   ItemDetail, 
   OrderConfirmation, 
   OrderTracking, 
-  PaymentScreen,
   OrdersPage,
   ProfilePage,
   CartPage,
@@ -201,9 +200,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/menu" element={<MenuSplash />} />
               <Route path="/menu/browse" element={<MenuHome />} />
               <Route path="/menu/item/:id" element={<ItemDetail />} />
-              <Route path="/menu/confirmed/:id" element={<OrderConfirmation />} />
+              <Route path="/menu/confirmed/:orderId" element={<OrderConfirmation />} />
               <Route path="/menu/track/:orderId" element={<OrderTracking />} />
-              <Route path="/menu/pay" element={<PaymentScreen />} />
               <Route path="/menu/orders" element={<OrdersPage />} />
               <Route path="/menu/profile" element={<ProfilePage />} />
               <Route path="/menu/cart" element={<CartPage />} />

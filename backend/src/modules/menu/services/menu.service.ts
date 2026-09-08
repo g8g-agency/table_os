@@ -34,6 +34,7 @@ import {
   deleteBranchItemOverride,
   replaceItemModifierGroups,
   findModifierGroupIdsForItem,
+  findModifierGroupIdsForItems,
 } from '../repositories/menu-item.repository';
 import {
   findModifierGroupsWithOptions,
@@ -388,12 +389,10 @@ export async function getEffectiveMenuForBranch(
   const overrides = await findAllBranchItemOverrides(tenantId, query.branch_id);
   const overrideMap = new Map(overrides.map((o) => [o.item_id, o]));
 
-  // 3. Collect all unique modifier group IDs across all items
-  const itemIds       = items.map((i) => i.id);
-  const groupIdSets   = await Promise.all(
-    itemIds.map((id) => findModifierGroupIdsForItem(tenantId, id))
-  );
-  const allGroupIds   = [...new Set(groupIdSets.flat())];
+  // 3. Batch load all modifier group associations for these items
+  const itemIds = items.map((i) => i.id);
+  const modifierGroupMap = await findModifierGroupIdsForItems(tenantId, itemIds);
+  const allGroupIds = [...new Set(Array.from(modifierGroupMap.values()).flat())];
 
   // 4. Batch load modifier groups + options
   const modGroups     = await findModifierGroupsWithOptions(tenantId, allGroupIds);
@@ -414,7 +413,7 @@ export async function getEffectiveMenuForBranch(
   for (let i = 0; i < items.length; i++) {
     const item       = items[i];
     const override   = overrideMap.get(item.id);
-    const groupIds   = groupIdSets[i];
+    const groupIds   = modifierGroupMap.get(item.id) || [];
 
     const effectivePrice     = override?.override_price  ?? item.base_price;
     const effectiveAvailable = override?.is_available    ?? (item.status === 'active');
@@ -466,6 +465,7 @@ export async function getEffectiveMenuForBranch(
       prep_time_minutes:     item.prep_time_minutes,
       is_available:          effectiveAvailable,
       is_featured:           item.is_featured,
+      is_veg:                item.is_veg,
       image_url:             item.image_url,
       thumbnail_url:         item.thumbnail_url,
       sort_order:            effectiveSortOrder,

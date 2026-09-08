@@ -7,7 +7,6 @@
 
 import { AppError, NotFoundError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
-import * as Sentry from '@sentry/node';
 import * as cartRepo from '../cart/cart.repository';
 import * as ordersRepo from './orders.repository';
 import { createOrderSnapshot } from '../snapshot/order-snapshot.service';
@@ -20,6 +19,8 @@ import * as cartService from '../cart/cart.service';
 import * as kitchenService from '../kitchen/kitchen.service';
 import { logger } from '../../shared/utils/logger';
 import { rebuildTableProjection } from '../tables/projections/table-runtime.projection';
+import { TableSessionsRepository } from '../tables/repositories/table-sessions.repository';
+import { VALID_ORDER_TRANSITIONS } from './order-lifecycle.service';
 
 export async function createDirectOrder(params: {
   tenantId: string;
@@ -32,6 +33,7 @@ export async function createDirectOrder(params: {
   source: ordersRepo.OrderSource;
   userId?: string;
   customerName?: string;
+  customerId?: string;
 }): Promise<ordersRepo.Order> {
   logger.info({
     stage: 'service_entry_createDirectOrder',
@@ -80,19 +82,11 @@ export async function createDirectOrder(params: {
     source: params.source,
     userId: params.userId,
     customerName: params.customerName,
+    customerId: params.customerId,
   });
 }
 
-const VALID_TRANSITIONS: Record<ordersRepo.OrderStatus, ordersRepo.OrderStatus[]> = {
-  pending: ['accepted', 'cancelled', 'completed'],
-  accepted: ['preparing', 'cancelled', 'completed'],
-  preparing: ['ready', 'cancelled', 'completed'],
-  ready: ['delivered', 'cancelled', 'completed'],
-  delivered: ['completed', 'cancelled'],
-  completed: [],
-  cancelled: [],
-  sync_conflict: [],
-};
+// VALID_ORDER_TRANSITIONS is the single canonical FSM — imported from order-lifecycle.service.ts
 
 export async function createOrderFromCart(params: {
   tenantId: string;
@@ -105,8 +99,12 @@ export async function createOrderFromCart(params: {
   source: ordersRepo.OrderSource;
   userId?: string;
   customerName?: string;
+  customerId?: string;
+  customerPaymentIntent?: 'cash' | 'upi';
 }): Promise<ordersRepo.Order> {
-  const { tenantId, cartId, idempotencyKey, expectedCartRevision, customerName } = params;
+  const {
+    tenantId, cartId, idempotencyKey, expectedCartRevision, customerName, customerId, customerPaymentIntent
+  } = params;
 
   // 1. Idempotency Check
   if (idempotencyKey) {
@@ -128,6 +126,25 @@ export async function createOrderFromCart(params: {
 
   if (expectedCartRevision !== undefined && cart.version_num !== expectedCartRevision) {
     throw new AppError('STALE_RUNTIME_STATE: Cart was modified since your last known revision', 409, ErrorCode.CONFLICT);
+  }
+
+  // 2.5 Validate customer matches tenant
+  if (customerId) {
+    const { data: customerData, error: customerError } = await supabaseAdmin
+      .from('customers')
+      .select('tenant_id')
+      .eq('id', customerId)
+      .maybeSingle();
+
+    if (customerError) {
+      throw new AppError(`Failed to validate customer: ${customerError.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+    if (!customerData) {
+      throw new AppError('Customer not found', 404, ErrorCode.NOT_FOUND);
+    }
+    if (customerData.tenant_id !== tenantId) {
+      throw new AppError('Customer does not belong to this tenant', 403, ErrorCode.FORBIDDEN);
+    }
   }
 
   // 3. Strict Runtime Pre-Checkout Revalidation
@@ -175,6 +192,17 @@ export async function createOrderFromCart(params: {
       }
     }
   }
+
+  // 3.5 Table Session Resolution
+  let activeSession = await TableSessionsRepository.getActiveSession(params.tableId);
+  if (activeSession) {
+    if (activeSession.status === 'payment_requested' || activeSession.status === 'payment_processing') {
+      throw new AppError('Cannot create order while table payment is being processed.', 409, ErrorCode.CONFLICT);
+    }
+  } else {
+    activeSession = await TableSessionsRepository.createSession(tenantId, cart.branch_id, params.tableId);
+  }
+  const tableSessionId = activeSession.id;
 
   // 4. Create immutable order snapshots (reads cart, runs database-level snapshot inserts)
   const snapshotId = await createOrderSnapshot(tenantId, cartId, cart.version_num, customerName);
@@ -226,6 +254,7 @@ export async function createOrderFromCart(params: {
       p_invoice_number: invoiceNumber,
       p_table_id: params.tableId,
       p_session_id: params.sessionId || cart.session_id || null,
+      p_table_session_id: tableSessionId,
       p_source: params.source,
       p_order_notes: params.orderNotes || null,
       p_user_id: params.userId || null,
@@ -258,6 +287,7 @@ export async function createOrderFromCart(params: {
           branch_id: cart.branch_id,
           table_id: params.tableId,
           session_id: params.sessionId || cart.session_id || null,
+          table_session_id: tableSessionId,
           cart_id: cartId,
           order_snapshot_id: snapshotId,
           order_number: orderNumber,
@@ -266,6 +296,7 @@ export async function createOrderFromCart(params: {
           idempotency_key: idempotencyKey || null,
           order_notes: params.orderNotes || null,
           customer_name: customerName || null,
+          customer_id: customerId || null,
           created_by: params.userId || null,
         });
 
@@ -292,9 +323,15 @@ export async function createOrderFromCart(params: {
       }
     }
 
-    // Explicitly update customer_name on orders since the RPC might not support it yet
-    if (customerName) {
-      await supabaseAdmin.from('orders').update({ customer_name: customerName }).eq('id', orderId).eq('tenant_id', tenantId);
+    // Explicitly update customer_name and customer_id on orders since the RPC might not support it yet
+    const explicitUpdates: any = {};
+    if (customerName) explicitUpdates.customer_name = customerName;
+    if (customerId) explicitUpdates.customer_id = customerId;
+    if (customerPaymentIntent) explicitUpdates.customer_payment_intent = customerPaymentIntent;
+    if (tableSessionId) explicitUpdates.table_session_id = tableSessionId;
+    
+    if (Object.keys(explicitUpdates).length > 0) {
+      await supabaseAdmin.from('orders').update(explicitUpdates).eq('id', orderId).eq('tenant_id', tenantId);
     }
 
     const response = responseData as { order_id: string; invoice_id: string; status: string };
@@ -326,12 +363,6 @@ export async function createOrderFromCart(params: {
     if (!createdOrder) {
       throw new AppError('Order created but could not be retrieved.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
-
-    // ── Auto-route order to Kitchen (creates kitchen_order + items + preparations) ──
-    // Run as best-effort async — order creation has already succeeded at this point.
-    void kitchenService.routeOrderToKitchen(tenantId, response.order_id).catch((err) => {
-      logger.error({ error: err.message, orderId: response.order_id }, '[OrderService] Non-fatal: Failed to auto-route order to kitchen after checkout');
-    });
 
     // ── Dispatch ORDER_ASSIGNED realtime event ────────────────────────────
     void _dispatchOrderAssignedEvent(createdOrder, cart!.branch_id, tenantId, cartItems);
@@ -434,8 +465,8 @@ export async function transitionOrderStatus(params: {
     throw new NotFoundError('Order');
   }
 
-  // 2. Validate state machine transition
-  const allowed = VALID_TRANSITIONS[order.status];
+  // 2. Validate state machine transition (canonical FSM)
+  const allowed = VALID_ORDER_TRANSITIONS[order.status];
   if (!allowed.includes(targetStatus)) {
     throw new AppError(
       `Invalid order status transition from '${order.status}' to '${targetStatus}'.`,
@@ -478,53 +509,8 @@ export async function transitionOrderStatus(params: {
     });
   }
   
-  // 4.6. Deactivate Guest Session immediately upon terminal transition to vacate the table
-  const terminalStates = ['completed', 'cancelled', 'voided'];
-  if (terminalStates.includes(targetStatus)) {
-    // We execute this synchronously. Do NOT swallow errors.
-    if (order.session_id) {
-      const { error: sessionError } = await supabaseAdmin
-        .from('guest_sessions')
-        .update({
-          is_active: false,
-          ended_at: new Date().toISOString(),
-          resolved_at: new Date().toISOString(),
-          closed_reason: targetStatus,
-        })
-        .eq('id', order.session_id)
-        .eq('tenant_id', tenantId);
-        
-      if (sessionError) {
-        logger.error({ error: sessionError, orderId }, '[OrderService] FATAL: Failed to deactivate guest session');
-        throw new AppError('Failed to close guest session during terminal transition.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
-      }
-    }
-      
-    // Rebuild projection so table state updates to FREE/Vacant immediately
-    const projection = await rebuildTableProjection(supabaseAdmin, tenantId, order.table_id);
-    
-    // Invariant Check 1: Guest session must be inactive
-    if (order.session_id) {
-      const { data: session } = await supabaseAdmin
-        .from('guest_sessions')
-        .select('is_active')
-        .eq('id', order.session_id)
-        .single();
-        
-      if (session && session.is_active) {
-        logger.error({ orderId, sessionId: order.session_id }, '[OrderService] INVARIANT FAILED: Guest session remains active after closure attempt.');
-        if (Sentry) Sentry.captureException(new Error(`Guest session ${order.session_id} remains active after terminal order transition for order ${orderId}`));
-        throw new AppError('Data inconsistency: Failed to close active session.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
-      }
-    }
-    
-    // Invariant Check 2: Table Projection should not be ACTIVE_GUESTS
-    if (projection && projection.runtime_state === 'ACTIVE_GUESTS') {
-      logger.error({ orderId, tableId: order.table_id, projection }, '[OrderService] INVARIANT FAILED: Table projection still ACTIVE_GUESTS after terminal transition.');
-      if (Sentry) Sentry.captureException(new Error(`Table projection ${order.table_id} is still ACTIVE_GUESTS after terminal order transition for order ${orderId}`));
-      throw new AppError('Data inconsistency: Table occupancy did not clear.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
-    }
-  }
+  // 4.6. Note: We deliberately DO NOT close the Guest Session here.
+  // The session remains active until the Bill is settled, allowing multiple orders per session.
 
   // 5. Dispatch Realtime Projection Update
   await ProjectionService.dispatchProjectionUpdate({
@@ -593,7 +579,10 @@ export async function transitionOrderStatus(params: {
       alertPayload = {
         orderId: order.id,
         orderNumber: order.order_number,
+        tableId: order.table_id,
         tableNumber,
+        assignedStaffId,
+        assignedStaffName: staffName,
         acceptedByStaffId: userId || assignedStaffId || null,
         acceptedByStaffName: staffName,
         acceptedAt: new Date().toISOString(),
@@ -608,7 +597,10 @@ export async function transitionOrderStatus(params: {
       alertPayload = {
         orderId: order.id,
         orderNumber: order.order_number,
+        tableId: order.table_id,
         tableNumber,
+        assignedStaffId,
+        assignedStaffName: staffName,
         reason: reason || 'Order rejected/cancelled',
         cancelledAt: new Date().toISOString(),
         tenantId,
@@ -840,11 +832,213 @@ export async function getPendingOrdersForStaff(
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .eq('status', 'pending')
-    .eq('tables.assigned_waiter_id', staffId)
+    .eq('tables.assigned_staff_id', staffId)
     .order('created_at', { ascending: true });
 
   if (error) return [];
   return (data ?? []) as ordersRepo.Order[];
 }
+// ── Assign Waiter to Order/Table (Staff acceptance mutation) ─────────────
+//
+// This is the ONLY mutation that sets assigned_staff_id on a table.
+// It is intentionally separated from the kitchen order status transition.
+//
+// Business invariants enforced atomically:
+//   1. tenant_id + branch_id valid (from caller's JWT context — enforced by middleware)
+//   2. staff record belongs to the same branch
+//   3. table belongs to the same branch
+//   4. order is in an eligible status (accepted | preparing | ready)
+//   5. table has no other waiter currently assigned (idempotent self-assignment allowed)
+//   6. idempotency_key prevents duplicate concurrent assignments
+//
+// After assignment:
+//   - tables.assigned_staff_id is set
+//   - table_runtime_projection is rebuilt
+//   - TABLE_WAITER_ASSIGNED is broadcast to the branch
+//   - Kitchen projection will pick up the new name on its next read (already resolves from staff table)
+//
+export async function assignWaiter(params: {
+  tenantId: string;
+  orderId: string;
+  staffId: string;      // JWT sub — may be staff.id (Runtime JWT) or auth user UUID (Supabase JWT)
+  idempotencyKey: string;
+}): Promise<{
+  tableId: string;
+  tableNumber: string;
+  assignedStaffId: string;
+  assignedStaffName: string;
+  orderId: string;
+  orderNumber: string;
+}> {
+  const { tenantId, orderId, staffId, idempotencyKey } = params;
 
+  // ── 1. Idempotency check ────────────────────────────────────────────────
+  const { data: existingKey } = await supabaseAdmin
+    .from('idempotency_registry')
+    .select('response_payload')
+    .eq('idempotency_key', idempotencyKey)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
 
+  if (existingKey) {
+    logger.info({ idempotencyKey, orderId }, '[AssignWaiter] Returning cached idempotent response');
+    return existingKey.response_payload as any;
+  }
+
+  // ── 2. Resolve authoritative staff record ───────────────────────────────
+  // Runtime JWT sub = staff.id; Supabase JWT sub = auth UUID (user_id column)
+  let staffRow: { id: string; name: string; branch_id: string } | null = null;
+
+  const { data: byPk } = await supabaseAdmin
+    .from('staff')
+    .select('id, name, branch_id')
+    .eq('id', staffId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (byPk) {
+    staffRow = byPk;
+  } else {
+    const { data: byUserId } = await supabaseAdmin
+      .from('staff')
+      .select('id, name, branch_id')
+      .eq('user_id', staffId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    staffRow = byUserId;
+  }
+
+  if (!staffRow) {
+    throw new AppError('Staff record not found for this tenant.', 403, ErrorCode.FORBIDDEN);
+  }
+
+  // ── 3. Staff Branch is Authoritative ──────────────────────────────────────
+  const staffBranchId = staffRow.branch_id;
+
+  // ── 4. Fetch order and validate status ──────────────────────────────────
+  const order = await ordersRepo.getOrderById(tenantId, orderId);
+  if (!order) {
+    throw new NotFoundError('Order');
+  }
+  if (order.branch_id !== staffBranchId) {
+    throw new AppError('Order does not belong to your branch.', 403, ErrorCode.FORBIDDEN);
+  }
+
+  // Waiter can only be assigned after KDS has accepted the kitchen order
+  const ASSIGNABLE_STATUSES: ordersRepo.OrderStatus[] = ['accepted', 'preparing', 'ready', 'delivered'];
+  if (!ASSIGNABLE_STATUSES.includes(order.status)) {
+    throw new AppError(
+      `Waiter cannot be assigned — order is currently '${order.status}'. Order must be accepted by kitchen first.`,
+      409,
+      ErrorCode.CONFLICT
+    );
+  }
+
+  // ── 5. Atomic table assignment ──────────────────────────────────────────
+  // Use a single UPDATE statement to guarantee race-free assignment
+  const { data: updatedTables, error: updateErr, count } = await supabaseAdmin
+    .from('tables')
+    .update({
+      assigned_staff_id: staffRow.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', order.table_id)
+    .eq('tenant_id', tenantId)
+    .eq('branch_id', staffBranchId)
+    .is('assigned_staff_id', null)
+    .select('id, table_number, display_name, assigned_staff_id');
+
+  if (updateErr) {
+    throw new AppError(`Assignment write failed: ${updateErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  }
+
+  let tableRow = updatedTables?.[0];
+
+  // If 0 rows updated, it was either already assigned or invalid
+  if (count === 0 || !tableRow) {
+    // Check if it's assigned to us already (idempotency fallback)
+    const { data: existingTable } = await supabaseAdmin
+      .from('tables')
+      .select('id, table_number, display_name, assigned_staff_id')
+      .eq('id', order.table_id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (existingTable && existingTable.assigned_staff_id === staffRow.id) {
+      // It was already assigned to us
+      tableRow = existingTable;
+    } else {
+      throw new AppError(
+        'Assignment conflict: table is already assigned or invalid. Please try again.',
+        409,
+        ErrorCode.CONFLICT
+      );
+    }
+  }
+
+  // ── 6. Rebuild table projection ────────────────────────────────────
+  try {
+    await rebuildTableProjection(supabaseAdmin, tenantId, tableRow.id);
+  } catch (projErr: any) {
+    // Non-fatal — projection rebuild failure must not roll back the assignment
+    logger.warn({ projErr: projErr.message, tableId: tableRow.id }, '[AssignWaiter] Table projection rebuild failed (non-fatal)');
+  }
+
+  const tableLabel = tableRow.display_name || `Table ${tableRow.table_number}`;
+
+  // ── 7. Build and cache response ────────────────────────────────────────
+  const responsePayload = {
+    tableId: tableRow.id,
+    tableNumber: tableLabel,
+    assignedStaffId: staffRow.id,
+    assignedStaffName: staffRow.name,
+    orderId: order.id,
+    orderNumber: order.order_number,
+  };
+
+  // Register idempotency key (24h expiry)
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await supabaseAdmin
+    .from('idempotency_registry')
+    .upsert({
+      idempotency_key: idempotencyKey,
+      tenant_id: tenantId,
+      response_payload: responsePayload as any,
+      expires_at: expiresAt,
+    }, { onConflict: 'idempotency_key' });
+
+  // ── 10. Broadcast realtime event ────────────────────────────────────────
+  // Sent to both ORDERING channel (Staff App) and SYSTEM channel (KDS update)
+  WebSocketManager.getInstance().broadcastToBranch(
+    staffBranchId,
+    'ORDERING',
+    'ALERT_STREAM',
+    'TABLE_WAITER_ASSIGNED',
+    {
+      ...responsePayload,
+      tenantId,
+      branchId: staffBranchId,
+      assignedAt: new Date().toISOString(),
+    }
+  );
+
+  WebSocketManager.getInstance().broadcastToBranch(
+    staffBranchId,
+    'SYSTEM',
+    'ORDER_ALERTS',
+    'TABLE_WAITER_ASSIGNED',
+    {
+      ...responsePayload,
+      tenantId,
+      branchId: staffBranchId,
+      assignedAt: new Date().toISOString(),
+    }
+  );
+
+  logger.info(
+    { tableId: tableRow.id, staffId: staffRow.id, staffName: staffRow.name, orderId, branchId: staffBranchId },
+    '[AssignWaiter] Waiter assigned successfully'
+  );
+
+  return responsePayload;
+}

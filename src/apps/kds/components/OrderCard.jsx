@@ -260,7 +260,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
             lineHeight:    1,
             color:         '#1A1C1E',
           }}>
-            Table {tableNum?.toString().replace(/^T/, '')}
+            Table {tableNum?.toString().replace(/^(table\s*|t\s*)/i, '').trim()}
           </h4>
           
           {/* Order ID — label metadata */}
@@ -288,8 +288,10 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
             )}
           </p>
           
-          {/* ASSIGNED STAFF */}
-          {(order.assignedStaffName || order.assignedStaffId) && (
+          {/* ASSIGNED STAFF — only shown after waiter explicitly accepts the notification.
+               assignedStaffName comes from the backend projection which resolves staff.id → name.
+               Never falls back to assignedStaffId (UUID) — if name is absent, label is hidden. */}
+          {order.assignedStaffName && (
             <div style={{
               fontSize: '10px',
               fontWeight: 700,
@@ -304,7 +306,7 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
               width: 'max-content'
             }}>
               <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>badge</span>
-              Assigned Waiter - {order.assignedStaffName || order.assignedStaffId}
+              Assigned Waiter - {order.assignedStaffName}
             </div>
           )}
         </div>

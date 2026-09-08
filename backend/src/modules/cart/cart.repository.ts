@@ -194,6 +194,14 @@ export async function deleteCartItem(
   itemId: string,
   versionNum: number,
 ): Promise<void> {
+  // Must delete modifiers first to satisfy FK constraint
+  const { error: modError } = await supabaseAdmin
+    .from('cart_item_modifiers')
+    .delete()
+    .eq('cart_item_id', itemId);
+
+  if (modError) throw new AppError('Failed to remove cart item modifiers', 500, ErrorCode.INTERNAL_SERVER_ERROR, true, { error: modError });
+
   const { error } = await supabaseAdmin
     .from('cart_items')
     .delete()

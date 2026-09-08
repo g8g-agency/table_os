@@ -613,7 +613,6 @@ export type Database = {
           discount_total_minor: number
           grand_total_minor: number
           id: string
-          parent_bill_id: string | null
           session_id: string | null
           status: Database["public"]["Enums"]["bill_status"]
           subtotal_minor: number
@@ -636,7 +635,6 @@ export type Database = {
           discount_total_minor?: number
           grand_total_minor: number
           id?: string
-          parent_bill_id?: string | null
           session_id?: string | null
           status?: Database["public"]["Enums"]["bill_status"]
           subtotal_minor: number
@@ -659,7 +657,6 @@ export type Database = {
           discount_total_minor?: number
           grand_total_minor?: number
           id?: string
-          parent_bill_id?: string | null
           session_id?: string | null
           status?: Database["public"]["Enums"]["bill_status"]
           subtotal_minor?: number
@@ -672,15 +669,7 @@ export type Database = {
           voided_at?: string | null
           voided_by?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "bills_parent_bill_id_fkey"
-            columns: ["parent_bill_id"]
-            isOneToOne: false
-            referencedRelation: "bills"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       branch_category_overrides: {
         Row: {

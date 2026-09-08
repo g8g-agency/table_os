@@ -11,7 +11,7 @@ export class AvailabilityRepository {
    * @param {string} params.branchId - The branch ID
    * @returns {Promise<Object>} - The overlay data
    */
-  static async fetchAvailabilityOverlay({ tenantSlug, tenantId, branchId }) {
+  static async fetchAvailabilityOverlay({ tenantSlug, tenantId, branchId, signal }) {
     console.log(`[AvailabilityRepository] fetchAvailabilityOverlay called at ${Date.now()}`);
     try {
       const url = new URL(`${API_BASE_URL}/api/v1/public/branches/${branchId}/menu-availability`);
@@ -20,6 +20,7 @@ export class AvailabilityRepository {
 
       const response = await fetch(url.toString(), {
         method: 'GET',
+        signal,
         headers: {
           'Accept': 'application/json',
         }
@@ -36,7 +37,9 @@ export class AvailabilityRepository {
 
       return json.data;
     } catch (error) {
-      console.error('[AvailabilityRepository] Error fetching overlay:', error);
+      if (error?.name !== 'AbortError') {
+        console.error('[AvailabilityRepository] Error fetching overlay:', error);
+      }
       throw error;
     }
   }

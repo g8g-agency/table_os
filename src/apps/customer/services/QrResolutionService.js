@@ -58,6 +58,7 @@ export class QrResolutionService {
         branch_id: data.branch.id,
         table_id: data.table.id,
         table_name: data.table.display_name || data.table.table_number,
+        floor_name: data.table.table_floors?.name || null,
         restaurant_name: data.tenant.name,
         guest_session_id: data.guestSession?.id,
       };

@@ -362,7 +362,7 @@ export default function OrderTracking() {
         )}
 
         {/* 5. YOUR ITEMS CARD */}
-        {!['rejected', 'cancelled'].includes(orderStatus) && (
+        {true && (
           <div style={{ background: 'white', borderRadius: 16, margin: '0 16px 16px', padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1C1E', margin: '0 0 16px' }}>Your Items</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -400,7 +400,7 @@ export default function OrderTracking() {
         )}
 
         {/* 6. BILL SUMMARY + PAY BUTTON */}
-        {(orderStatus === 'pending' || orderStatus === 'cooking' || orderStatus === 'ready') && (
+        {true && (
           <div style={{
             background: 'white',
             borderRadius: '16px',
@@ -576,18 +576,20 @@ export default function OrderTracking() {
         )}
 
         {/* 7. ADD MORE ITEMS BUTTON */}
-        <div style={{ padding: '0 16px', marginBottom: 8 }}>
-          <button 
-            onClick={() => navigate('/menu/browse')}
-            style={{ width: '100%', border: '1.5px solid #E31E24', background: 'white', color: '#E31E24', height: 48, borderRadius: 12, fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>
-            Add more items
-          </button>
-          <p style={{ fontSize: 12, color: '#6C757D', textAlign: 'center', marginTop: 12 }}>
-            A server will bring your order to Table {order?.table_num}
-          </p>
-        </div>
+        {!['rejected', 'cancelled'].includes(orderStatus) && (
+          <div style={{ padding: '0 16px', marginBottom: 8 }}>
+            <button 
+              onClick={() => navigate('/menu/browse')}
+              style={{ width: '100%', border: '1.5px solid #E31E24', background: 'white', color: '#E31E24', height: 48, borderRadius: 12, fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>
+              Add more items
+            </button>
+            <p style={{ fontSize: 12, color: '#6C757D', textAlign: 'center', marginTop: 12 }}>
+              A server will bring your order to Table {order?.table_num}
+            </p>
+          </div>
+        )}
       </main>
 
       {/* 7. BOTTOM NAV */}

@@ -12,8 +12,18 @@ import { supabaseAdmin } from '../../config/supabase';
 import { rebuildTableProjection } from '../tables/projections/table-runtime.projection';
 import * as tableRepo from '../tables/repositories/table.repository';
 import { AnalyticsService } from './analytics.service';
+import { requireQrSession } from '../tables/qr/qr.middleware';
+import { requireMutationEnvelope } from '../../middleware/mutation.middleware';
+import { requestIdempotency } from '../../middleware/idempotency.middleware';
 
 const router: Router = Router({ mergeParams: true });
+
+function requireQrOrStaffAuth(req: Request, res: Response, next: NextFunction) {
+  if (req.headers['x-qr-session-token'] || req.query.session_token) {
+    return requireQrSession(req, res, next);
+  }
+  return authenticate(req, res, next);
+}
 
 // Background mock rebuild tracker
 const rebuildJobsProgress: Map<string, { total: number; completed: number; active: boolean }> = new Map();
@@ -208,6 +218,80 @@ router.get('/rebuild-status', authenticate, async (req: Request, res: Response, 
       completed_tables: job.completed,
       progress_percent: job.total > 0 ? Math.round((job.completed / job.total) * 100) : 100,
     });
+  } catch (err) { next(err); }
+});
+
+// POST /mutations
+router.post('/mutations', requireQrOrStaffAuth, requireMutationEnvelope(), requestIdempotency(), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { mutation_id } = req.mutationContext || req.body;
+    const payload = req.body;
+    
+    if (mutation_id === 'upsert_guest_session') {
+      const { customer_id } = payload;
+      
+      // Ensure we have validated context from the mutation envelope/QR session
+      const tenant_id = req.mutationContext?.tenant_id;
+      const table_id = req.qrSession?.tableId || req.qrSession?.table_id || ((req as any).user ? payload?.table_id : undefined);
+      
+      const debugContext = {
+        mutation_id,
+        envelope_tenant_id: req.mutationContext?.tenant_id,
+        payload_tenant_id: payload?.tenant_id,
+        qrSession_tenant_id: req.qrSession?.tenantId || req.qrSession?.tenant_id,
+        qrSession_branch_id: req.qrSession?.branchId || req.qrSession?.branch_id,
+        qrSession_table_id: table_id,
+        customer_id,
+        resolved_customer_tenant_id: 'PENDING_CHECK',
+      };
+
+      if (!tenant_id || !table_id) {
+        console.error('[MutationGateway] 400 Rejected: Missing tenant or table context', debugContext);
+        res.status(400).json({ success: false, error: 'Missing tenant or table context in session' });
+        return;
+      }
+      
+      if (customer_id) {
+        // Find active session for this table and update its guest_identifier
+        const { data: activeSession, error: sessionErr } = await supabaseAdmin
+          .from('guest_sessions')
+          .select('id, tenant_id')
+          .eq('tenant_id', tenant_id)
+          .eq('table_id', table_id)
+          .eq('is_active', true)
+          .single();
+          
+        if (sessionErr) {
+           console.error('[MutationGateway] 400 Rejected: Error fetching active session', { ...debugContext, err: sessionErr });
+        }
+
+        // Verify that the customer actually belongs to the SAME tenant
+        const { data: customerRecord } = await supabaseAdmin
+          .from('customers')
+          .select('tenant_id')
+          .eq('id', customer_id)
+          .single();
+
+        debugContext.resolved_customer_tenant_id = customerRecord?.tenant_id || 'NOT_FOUND';
+
+        if (!customerRecord || customerRecord.tenant_id !== tenant_id) {
+          console.error('[MutationGateway] 400 Rejected: Customer tenant mismatch', debugContext);
+          res.status(400).json({ success: false, error: 'Customer identity does not match current tenant' });
+          return;
+        }
+          
+        if (activeSession) {
+          await supabaseAdmin
+            .from('guest_sessions')
+            .update({ guest_identifier: customer_id })
+            .eq('id', activeSession.id);
+        }
+      }
+      res.status(200).json({ success: true });
+      return;
+    }
+
+    res.status(400).json({ success: false, error: 'Unknown runtime mutation' });
   } catch (err) { next(err); }
 });
 

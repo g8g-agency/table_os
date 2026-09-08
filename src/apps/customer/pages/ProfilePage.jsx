@@ -1,17 +1,17 @@
 /* eslint-disable */
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { getTableNum } from '../utils/tableNum'
+import { BottomNav } from '../components/BottomNav'
 
-// Read the session saved by CheckIn screen
-const getSession = () => {
-  try {
-    return JSON.parse(localStorage.getItem('customerSession') || '{}')
-  } catch { return {} }
-}
+import { getQrSession, getCustomerSession } from '../utils/qrSession'
+const TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
 
 export default function ProfilePage() {
   const navigate = useNavigate()
-  const session = getSession()
+  const location = useLocation()
+  const { tenantId } = getQrSession()
+  const activeTenantId = tenantId || TENANT_ID
+  const session = getCustomerSession(activeTenantId)
 
   const displayName  = session.name     || 'Guest'
   const displayPhone = session.phone    || 'Not provided'
@@ -28,16 +28,26 @@ export default function ProfilePage() {
   const handleLeave = () => {
     if (confirm('Are you sure you want to end this session? You will need to check in again.')) {
       localStorage.removeItem('customerSession')
-      window.location.href = `/menu/browse?table=${getTableNum()}`
+      navigate(`/menu/checkin${location.search}`)
     }
   }
 
   if (session.name) {
     return (
-      <div style={{ padding: '60px 24px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: '#E31E24', margin: '0 0 32px' }}>Profile</h1>
+      <div style={{ padding: '0 0 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
+        
+        {/* Header */}
+        <div style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+          <button onClick={() => navigate(-1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#1A1C1E' }}>arrow_back</span>
+          </button>
+          <div>
+            <h2 style={{ fontWeight: 800, fontSize: 16, color: '#1A1C1E', margin: 0, lineHeight: 1.2 }}>Profile</h2>
+          </div>
+        </div>
 
-        <div style={{ background: 'white', borderRadius: 20, padding: 24, boxShadow: '0 10px 40px rgba(27,43,75,0.06)', border: '1px solid #F9FAFB' }}>
+        <div style={{ padding: '24px' }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 24, boxShadow: '0 10px 40px rgba(27,43,75,0.06)', border: '1px solid #F9FAFB' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 800, color: '#E31E24' }}>
                 {displayName[0].toUpperCase()}
@@ -84,19 +94,33 @@ export default function ProfilePage() {
             Leave Table
           </button>
         </div>
+        </div>
+        
+        <BottomNav />
       </div>
     )
   }
 
-  // No session — CheckIn handles full flow on next page load
+  // No session — show manual check-in button
   return (
-    <div style={{ padding: '60px 24px 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, color: '#E31E24', margin: '0 0 12px' }}>Profile</h1>
-      <p style={{ margin: '0 0 32px', fontSize: 14, color: '#6C757D', lineHeight: 1.6, fontWeight: 500 }}>
-        No active session. Please reload the page to check in.
-      </p>
+    <div style={{ padding: '0 0 120px', maxWidth: '430px', margin: '0 auto', fontFamily: '"Plus Jakarta Sans", sans-serif', background: 'white', minHeight: '100vh' }}>
+      
+      {/* Header */}
+      <div style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+        <button onClick={() => navigate(-1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#1A1C1E' }}>arrow_back</span>
+        </button>
+        <div>
+          <h2 style={{ fontWeight: 800, fontSize: 16, color: '#1A1C1E', margin: 0, lineHeight: 1.2 }}>Profile</h2>
+        </div>
+      </div>
+
+      <div style={{ padding: '24px' }}>
+        <p style={{ margin: '0 0 32px', fontSize: 14, color: '#6C757D', lineHeight: 1.6, fontWeight: 500 }}>
+          No active session. Please check in to continue.
+        </p>
       <button
-        onClick={() => { localStorage.removeItem('customerSession'); window.location.reload() }}
+        onClick={() => { localStorage.removeItem('customerSession'); navigate(`/menu/checkin${location.search}`) }}
         style={{
           width: '100%', padding: '18px', borderRadius: 16,
           background: '#E31E24', color: 'white', fontWeight: 700,
@@ -106,6 +130,8 @@ export default function ProfilePage() {
       >
         Check In Now
       </button>
+      </div>
+      <BottomNav />
     </div>
   )
 }
