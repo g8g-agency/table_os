@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { formatSuccess } from '../../shared/utils/response-formatter';
 import { getCartRecommendations } from '../menu/services/menu-recommendation.service';
 
-const router = Router();
+const router: Router = Router();
 
 const RecommendationQuerySchema = z.object({
   tenantId: z.string().uuid(),
