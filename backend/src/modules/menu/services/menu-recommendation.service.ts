@@ -13,7 +13,7 @@
 
 import { logger } from '../../../shared/utils/logger';
 import { findRecommendationsForItems } from '../repositories/menu-recommendation.repository';
-import { findAnyItemById, findAllBranchItemOverrides, findModifierGroupIdsForItem, findModifierGroupIdsForItems } from '../repositories/menu-item.repository';
+import { findAnyItemById, findAllBranchItemOverrides, findModifierGroupIdsForItems } from '../repositories/menu-item.repository';
 import { findModifierGroupsWithOptions, findBranchModifierGroupOverrides, findBranchModifierOverrides } from '../repositories/modifier.repository';
 import type { EffectiveMenuItemRecommendation, MenuItem, EffectiveMenuItem, ModifierGroupWithOptions, ModifierOption } from '../menu.types';
 
