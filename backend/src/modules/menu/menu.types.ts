@@ -76,6 +76,8 @@ export interface MenuItem {
   spice_level:          SpiceLevel;
   prep_time_minutes:    number | null;
   sort_order:           number;
+  recommendation_enabled: boolean;
+  recommendation_tags:  string[];
   created_by:           string | null;
   updated_by:           string | null;
   version_num:          number;
@@ -228,7 +230,18 @@ export interface EffectiveMenuItem {
 
 // ─── Recommendations ──────────────────────────────────────────
 
-export type RecommendationType = 'complementary' | 'variant' | 'beverage' | 'upsell' | 'popular_pair';
+export type RecommendationType =
+  | 'complementary'
+  | 'admin_selected'
+  | 'complete_meal'
+  | 'similar'
+  | 'popular'
+  | 'frequently_bought'
+  | 'dont_recommend'
+  | 'variant'
+  | 'beverage'
+  | 'upsell'
+  | 'popular_pair';
 
 export interface MenuItemRecommendation {
   id:                       string;
@@ -242,6 +255,16 @@ export interface MenuItemRecommendation {
   deleted_at:               string | null;
   created_at:               string;
   updated_at:               string;
+}
+
+export interface AdminMenuItemRecommendation extends MenuItemRecommendation {
+  recommended_item?: {
+    id: string;
+    name: string;
+    image_url: string | null;
+    base_price: number;
+    status: MenuItemStatus;
+  } | null;
 }
 
 export interface EffectiveMenuItemRecommendation extends EffectiveMenuItem {

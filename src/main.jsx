@@ -72,8 +72,30 @@ import RuntimeCertificationPanel from './runtime/validation/RuntimeCertification
 
 
 /**
+ * CustomerGate: Lightweight boundary for public guest dining.
+ * Tags Sentry context and re-hydrates any active table session on page refresh
+ * without requiring employee auth, Supabase user sessions, or blocking on POS runtimes.
+ */
+function CustomerGate({ children }) {
+  useEffect(() => {
+    Sentry.setTag("surface", "customer");
+    const qrToken = sessionStorage.getItem('qr_session_token');
+    const tableId = sessionStorage.getItem('qr_table_id');
+    if (qrToken && tableId) {
+      import('./runtime').then(({ runtime }) => {
+        runtime.bootstrap(`qr_table_${tableId}`, qrToken);
+      }).catch((err) => {
+        console.warn('[CustomerGate] Runtime bootstrap notice:', err);
+      });
+    }
+  }, []);
+
+  return children;
+}
+
+/**
  * AuthGate: Synchronizes Zustand with Supabase Auth state 
- * and manages hydration/initial loading.
+ * and manages hydration/initial loading for staff and administrative surfaces.
  */
 function AuthGate({ children }) {
   const isHydrated = useAuthStore(state => state.isHydrated)
@@ -87,8 +109,6 @@ function AuthGate({ children }) {
       Sentry.setTag("surface", "staff");
     } else if (location.pathname.startsWith('/runtime')) {
       Sentry.setTag("surface", "observability");
-    } else {
-      Sentry.setTag("surface", "customer");
     }
   }, [location.pathname]);
 
@@ -97,7 +117,7 @@ function AuthGate({ children }) {
       try {
         const { resolveApiBaseUrl } = await import('./lib/apiClient.js')
         const url = resolveApiBaseUrl()
-        const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) })
+        const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(10000) })
         if (res.ok) {
           setHealthStatus('ok')
         } else {
@@ -110,15 +130,6 @@ function AuthGate({ children }) {
     }
 
     checkHealth().then(() => {
-      // Initialize formal runtime session for Customer QR users if they refresh
-      const qrToken = sessionStorage.getItem('qr_session_token');
-      const tableId = sessionStorage.getItem('qr_table_id');
-      if (qrToken && tableId) {
-        import('./runtime').then(({ runtime }) => {
-          runtime.bootstrap(`qr_table_${tableId}`, qrToken);
-        });
-      }
-
       if (supabase) {
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           console.log(`[AuthGate] Event: ${event}`)
@@ -184,61 +195,52 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <Sentry.ErrorBoundary fallback={<div className="h-screen w-screen flex items-center justify-center bg-[#0a0a0a] text-white p-6"><div className="text-center"><h1 className="text-2xl font-bold text-red-500 mb-4">Something went wrong</h1><p className="text-gray-400 text-sm">We are experiencing technical difficulties. Please refresh the page.</p><button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">Refresh Page</button></div></div>}>
       <BrowserRouter>
         <Routes>
-        {/* KDS App Surface (Independent from Customer AuthGate) */}
-        <Route path="/kds/*" element={<KdsGate />} />
+          {/* ── Public Customer Menu Surface (Autonomous — NO Staff AuthGate) ── */}
+          <Route path="/" element={<Navigate to="/menu" replace />} />
+          <Route path="/t/:token" element={<CustomerGate><TableQrLanding /></CustomerGate>} />
+          <Route path="/menu" element={<CustomerGate><MenuSplash /></CustomerGate>} />
+          <Route path="/menu/browse" element={<CustomerGate><MenuHome /></CustomerGate>} />
+          <Route path="/menu/item/:id" element={<CustomerGate><ItemDetail /></CustomerGate>} />
+          <Route path="/menu/confirmed/:orderId" element={<CustomerGate><OrderConfirmation /></CustomerGate>} />
+          <Route path="/menu/track/:orderId" element={<CustomerGate><OrderTracking /></CustomerGate>} />
+          <Route path="/menu/orders" element={<CustomerGate><OrdersPage /></CustomerGate>} />
+          <Route path="/menu/profile" element={<CustomerGate><ProfilePage /></CustomerGate>} />
+          <Route path="/menu/cart" element={<CustomerGate><CartPage /></CustomerGate>} />
+          <Route path="/menu/checkin" element={<CustomerGate><CheckInRoute /></CustomerGate>} />
+          <Route path="/session-ended" element={<CustomerGate><SessionEndedPage /></CustomerGate>} />
 
-        {/* Customer & Staff App Surfaces (Requires AuthGate for Profile Resolution) */}
-        <Route path="*" element={
-          <AuthGate>
-            <Routes>
-              <Route path="/" element={<Navigate to="/menu" replace />} />
+          {/* ── KDS App Surface (Independent Gate) ── */}
+          <Route path="/kds/*" element={<KdsGate />} />
 
-              {/* Table QR scan entry (app.orderlyy.com/t/{token}) */}
-              <Route path="/t/:token" element={<TableQrLanding />} />
+          {/* ── Protected Staff & Runtime App Surfaces (Strictly Protected by AuthGate) ── */}
+          <Route path="/staff/login" element={<AuthGate><StaffLogin /></AuthGate>} />
+          <Route path="/staff/tables" element={
+            <AuthGate>
+              <ProtectedRoute allowedRoles={['waiter', 'manager', 'owner']} redirectTo="/staff/login">
+                <StaffTables />
+              </ProtectedRoute>
+            </AuthGate>
+          } />
+          <Route path="/staff/table/:id" element={
+            <AuthGate>
+              <ProtectedRoute allowedRoles={['waiter', 'manager', 'owner']} redirectTo="/staff/login">
+                <StaffTableDetail />
+              </ProtectedRoute>
+            </AuthGate>
+          } />
 
-              {/* Customer Menu */}
-              <Route path="/menu" element={<MenuSplash />} />
-              <Route path="/menu/browse" element={<MenuHome />} />
-              <Route path="/menu/item/:id" element={<ItemDetail />} />
-              <Route path="/menu/confirmed/:orderId" element={<OrderConfirmation />} />
-              <Route path="/menu/track/:orderId" element={<OrderTracking />} />
-              <Route path="/menu/orders" element={<OrdersPage />} />
-              <Route path="/menu/profile" element={<ProfilePage />} />
-              <Route path="/menu/cart" element={<CartPage />} />
-              <Route path="/menu/checkin" element={<CheckInRoute />} />
-              <Route path="/session-ended" element={<SessionEndedPage />} />
+          {/* Runtime Observability — DEV / QA / INTERNAL_PILOT only */}
+          {import.meta.env.DEV && (
+            <>
+              <Route path="/runtime/panel" element={<AuthGate><RuntimeObservabilityPanel /></AuthGate>} />
+              <Route path="/runtime/certify" element={<AuthGate><RuntimeCertificationPanel /></AuthGate>} />
+            </>
+          )}
 
-              {/* Admin App is handled natively in Flutter, no web routes here */}
-
-              {/* Staff Runtime */}
-              <Route path="/staff/login" element={<StaffLogin />} />
-              <Route path="/staff/tables" element={
-                <ProtectedRoute allowedRoles={['waiter', 'manager', 'owner']} redirectTo="/staff/login">
-                  <StaffTables />
-                </ProtectedRoute>
-              } />
-              <Route path="/staff/table/:id" element={
-                <ProtectedRoute allowedRoles={['waiter', 'manager', 'owner']} redirectTo="/staff/login">
-                  <StaffTableDetail />
-                </ProtectedRoute>
-              } />
-
-              {/* POS Runtime — now runs as standalone app (Orderlli/pos submodule) */}
-
-              {/* Runtime Observability — DEV / QA / INTERNAL_PILOT only */}
-              {import.meta.env.DEV && (
-                <>
-                  <Route path="/runtime/panel" element={<RuntimeObservabilityPanel />} />
-                  <Route path="/runtime/certify" element={<RuntimeCertificationPanel />} />
-                </>
-              )}
-
-              <Route path="*" element={<Navigate to="/menu" replace />} />
-            </Routes>
-          </AuthGate>
-        } />
-      </Routes>
-    </BrowserRouter>
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/menu" replace />} />
+        </Routes>
+      </BrowserRouter>
     </Sentry.ErrorBoundary>
   </React.StrictMode>
 )

@@ -1,1 +1,1 @@
-// Temporary debug script - ran successfully.
+// Removed — orphaned debug script (ran once, 2026-11).

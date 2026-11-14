@@ -138,21 +138,49 @@ export async function addCartItem(
   // 4. Calculate unit price snapshot
   const unitPrice = resolvedItem.price.price_minor;
 
-  // 5. Insert item
-  const displayOrder = (await cartRepo.listCartItems(cart.id)).length;
-  const insertedItem = await cartRepo.insertCartItem(tenantId, cart.id, {
-    menu_item_id: dto.menu_item_id,
-    item_name_snapshot: resolvedItem.name,
-    item_sku_snapshot: resolvedItem.slug ?? null,
-    unit_price_minor_snapshot: unitPrice,
-    quantity: dto.quantity,
-    item_notes: dto.item_notes,
-    display_order: displayOrder,
+  // 5. Check if an identical item already exists in the cart (same menu_item_id, notes, and exact same modifiers)
+  const existingItems = await cartRepo.listCartItems(cart.id);
+  const existingItemIds = existingItems.map((i) => i.id);
+  const existingModifiers = existingItemIds.length > 0 ? await cartRepo.listCartItemModifiers(existingItemIds) : [];
+
+  const normalizedInputNotes = (dto.item_notes || '').trim();
+  const sortedInputOptionIds = modifiersToInsert.map((m) => m.modifier_option_id).sort().join(',');
+
+  const matchingItem = existingItems.find((existing) => {
+    if (existing.menu_item_id !== dto.menu_item_id) return false;
+    const existingNotes = (existing.item_notes || '').trim();
+    if (existingNotes !== normalizedInputNotes) return false;
+
+    const itemMods = existingModifiers.filter((m) => m.cart_item_id === existing.id);
+    const sortedExistingOptionIds = itemMods.map((m) => m.modifier_option_id).sort().join(',');
+    return sortedExistingOptionIds === sortedInputOptionIds;
   });
 
-  // 6. Insert modifiers
-  if (modifiersToInsert.length > 0) {
-    await cartRepo.insertCartItemModifiers(tenantId, insertedItem.id, modifiersToInsert);
+  if (matchingItem) {
+    // Merge: increment quantity on existing item
+    const newQty = matchingItem.quantity + dto.quantity;
+    await cartRepo.updateCartItem(tenantId, matchingItem.id, {
+      quantity: newQty,
+      item_notes: matchingItem.item_notes ?? undefined,
+      version_num: matchingItem.version_num,
+    });
+  } else {
+    // Insert new item
+    const displayOrder = existingItems.length;
+    const insertedItem = await cartRepo.insertCartItem(tenantId, cart.id, {
+      menu_item_id: dto.menu_item_id,
+      item_name_snapshot: resolvedItem.name,
+      item_sku_snapshot: resolvedItem.slug ?? null,
+      unit_price_minor_snapshot: unitPrice,
+      quantity: dto.quantity,
+      item_notes: dto.item_notes,
+      display_order: displayOrder,
+    });
+
+    // Insert modifiers
+    if (modifiersToInsert.length > 0) {
+      await cartRepo.insertCartItemModifiers(tenantId, insertedItem.id, modifiersToInsert);
+    }
   }
 
   // Reload and return full cart detail
@@ -235,6 +263,29 @@ export async function updateCartNotes(
   if (!updatedCart) {
     throw new AppError('Cart was modified by another request. Reload and retry.', 409, ErrorCode.CONFLICT);
   }
+
+  return getCartDetail(tenantId, sessionId);
+}
+
+export async function clearCart(
+  tenantId: string,
+  sessionId: string,
+  expectedCartRevision?: number,
+): Promise<CartDetailDto> {
+  const cart = await cartRepo.findActiveCartBySession(tenantId, sessionId);
+  if (!cart) {
+    throw new AppError('No active cart found for this session', 404, ErrorCode.NOT_FOUND);
+  }
+
+  if (expectedCartRevision !== undefined && cart.version_num !== expectedCartRevision) {
+    throw new AppError('STALE_RUNTIME_STATE: Cart was modified since your last known revision', 409, ErrorCode.CONFLICT);
+  }
+
+  if (cart.status !== 'open') {
+    throw new AppError(`Cannot modify cart in status '${cart.status}'`, 422, ErrorCode.VALIDATION_ERROR);
+  }
+
+  await cartRepo.clearCart(cart.id);
 
   return getCartDetail(tenantId, sessionId);
 }

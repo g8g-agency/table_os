@@ -372,8 +372,435 @@ router.get('/branch/:branchId/disablements',
 
 // ─── Recommendations Routes (Admin) ──────────────────────────────
 
-import { findRecommendationsForItems, upsertRecommendation, updateRecommendation, softDeleteRecommendation } from './repositories/menu-recommendation.repository';
-import { CreateRecommendationSchema, UpdateRecommendationSchema } from './menu.validators';
+import {
+  findAdminRecommendationsForItem,
+  createOrReactivateRecommendation,
+  updateRecommendation,
+  deactivateRecommendation,
+  reactivateRecommendation,
+  softDeleteRecommendation,
+} from './repositories/menu-recommendation.repository';
+import {
+  CreateRecommendationSchema,
+  UpdateRecommendationSchema,
+  RecommendationAnalyticsQuerySchema,
+  RecommendationOptimizationQuerySchema,
+  RecommendationEvaluationQuerySchema,
+  RecommendationReplayBodySchema,
+  RecommendationQualityQuerySchema,
+  RecommendationPromotionReviewBodySchema,
+  RecommendationQualityEvaluateBodySchema,
+} from './menu.validators';
+import { RecommendationTelemetryService } from './observability/recommendation-telemetry.service';
+import { RecommendationAnalyticsService } from './analytics/recommendation-analytics.service';
+import { RecommendationOptimizationService } from './optimization/recommendation-optimization.service';
+import {
+  RecommendationEvaluationService,
+  RecommendationReplayService,
+} from './evaluation';
+import {
+  RecommendationQualityService,
+  RecommendationPromotionService,
+} from './quality';
+import type { OptimizationInsightType } from './optimization/recommendation-optimization.types';
+import { ForbiddenError } from '../../shared/errors/AppError';
+import {
+  ExperimentService,
+  ExperimentAnalyticsService,
+  CreateExperimentSchema,
+  UpdateExperimentSchema,
+  ExperimentQuerySchema,
+  ExperimentAnalyticsQuerySchema,
+  type CreateExperimentDto,
+  type UpdateExperimentDto,
+} from './experiments';
+import {
+  RecommendationStrategyService,
+  CreateStrategySchema,
+  UpdateStrategySchema,
+  StrategyQuerySchema,
+  StrategyApprovalSchema,
+  StrategyRollbackSchema,
+  type RecommendationStrategySurface,
+} from './strategies';
+
+/** GET /api/tenants/:tenantId/menu/recommendations/metrics - Diagnostic operational summary */
+router.get('/recommendations/metrics',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const metrics = RecommendationTelemetryService.getTenantMetrics(tenantId);
+      res.json(formatSuccess(metrics));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/analytics - Deep feedback & funnel analytics */
+router.get('/recommendations/analytics',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const parsed = validate(RecommendationAnalyticsQuerySchema, req.query);
+      const branchId = parsed.branchId || parsed.branch_id;
+      const sourceItemId = parsed.sourceItemId || parsed.source_item_id;
+      const recommendedItemId = parsed.recommendedItemId || parsed.recommended_item_id;
+      const reasonCode = parsed.reasonCode || parsed.reason_code;
+
+      const analytics = await RecommendationAnalyticsService.getRecommendationAnalytics(tenantId, {
+        tenantId,
+        branchId,
+        sourceItemId,
+        recommendedItemId,
+        reasonCode,
+        surface: parsed.surface,
+        range: parsed.range,
+        from: parsed.from,
+        to: parsed.to,
+        limit: parsed.limit,
+      });
+
+      res.json(formatSuccess(analytics));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/optimization - Controlled recommendation optimization insights */
+router.get('/recommendations/optimization',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const parsed = validate(RecommendationOptimizationQuerySchema, req.query);
+      const branchId = parsed.branchId || parsed.branch_id;
+      const sourceItemId = parsed.sourceItemId || parsed.source_item_id;
+      const recommendedItemId = parsed.recommendedItemId || parsed.recommended_item_id;
+      const reasonCode = parsed.reasonCode || parsed.reason_code;
+      const insightType = (parsed.insightType || parsed.insight_type) as OptimizationInsightType | undefined;
+      const includeInsufficientData = parsed.includeInsufficientData || parsed.include_insufficient_data;
+
+      // Enforce branch isolation if branchId is specified
+      if (branchId && req.context?.role !== ROLES.SUPER_ADMIN && req.context?.branchIds && req.context.branchIds.length > 0) {
+        if (!req.context.branchIds.includes(branchId)) {
+          throw new ForbiddenError('Caller does not have access to this branch');
+        }
+      }
+
+      const result = await RecommendationOptimizationService.getOptimizationInsights(tenantId, {
+        tenantId,
+        branchId,
+        sourceItemId,
+        recommendedItemId,
+        reasonCode,
+        insightType,
+        severity: parsed.severity,
+        range: parsed.range,
+        from: parsed.from,
+        to: parsed.to,
+        limit: parsed.limit,
+        includeInsufficientData,
+      });
+
+      res.json(formatSuccess(result));
+    } catch (err) { next(err); }
+  }
+);
+
+// ─── Recommendation Evaluation & Offline Replay (Checkpoint 13) ───
+
+/** GET /api/tenants/:tenantId/menu/recommendations/evaluation - Offline evaluation and quality summary */
+router.get('/recommendations/evaluation',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const parsed = validate(RecommendationEvaluationQuerySchema, req.query);
+      const branchId = parsed.branchId || parsed.branch_id;
+
+      // Enforce branch isolation if branchId is specified
+      if (branchId && req.context?.role !== ROLES.SUPER_ADMIN && req.context?.branchIds && req.context.branchIds.length > 0) {
+        if (!req.context.branchIds.includes(branchId)) {
+          throw new ForbiddenError('Caller does not have access to this branch');
+        }
+      }
+
+      const summary = await RecommendationEvaluationService.getTenantEvaluationSummary(tenantId, {
+        branchId,
+        range: parsed.range,
+      });
+
+      res.json(formatSuccess(summary));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/evaluation/replay - Deterministic recommendation replay */
+router.post('/recommendations/evaluation/replay',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const body = validate(RecommendationReplayBodySchema, req.body);
+      const branchId = body.branchId || body.branch_id || 'default-branch';
+
+      // Enforce branch isolation if branchId is specified
+      if (branchId && req.context?.role !== ROLES.SUPER_ADMIN && req.context?.branchIds && req.context.branchIds.length > 0) {
+        if (!req.context.branchIds.includes(branchId)) {
+          throw new ForbiddenError('Caller does not have access to this branch');
+        }
+      }
+
+      const replayResult = await RecommendationReplayService.replayContext({
+        tenantId,
+        branchId,
+        sourceItemIds: body.sourceItemIds,
+        cartItemIds: body.cartItemIds,
+        surface: body.surface,
+        limit: body.limit,
+        experimentVariantKey: body.experimentVariantKey,
+        skipTelemetry: true,
+      });
+
+      res.json(formatSuccess(replayResult));
+    } catch (err) { next(err); }
+  }
+);
+
+// ─── Recommendation Quality Gates & Controlled Promotion (Checkpoint 14) ───
+
+/** GET /api/tenants/:tenantId/menu/recommendations/quality - List promotion candidates or evaluate experiment quality */
+router.get('/recommendations/quality',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const query = validate(RecommendationQualityQuerySchema, req.query);
+      const branchId = query.branchId || query.branch_id;
+      const experimentId = query.experimentId || query.experiment_id;
+
+      // Enforce branch isolation if branchId is specified
+      if (branchId && req.context?.role !== ROLES.SUPER_ADMIN && req.context?.branchIds && req.context.branchIds.length > 0) {
+        if (!req.context.branchIds.includes(branchId)) {
+          throw new ForbiddenError('Caller does not have access to this branch');
+        }
+      }
+
+      if (experimentId) {
+        const result = await RecommendationQualityService.evaluateExperimentQuality(tenantId, experimentId, {
+          branchId,
+        });
+        res.json(formatSuccess(result));
+        return;
+      }
+
+      const candidates = RecommendationPromotionService.listCandidates(tenantId, {
+        branchId,
+        surface: query.surface,
+        status: query.status,
+      });
+
+      res.json(formatSuccess(candidates));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/quality/evaluate - Deterministic quality gate evaluation */
+router.post('/recommendations/quality/evaluate',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const body = validate(RecommendationQualityEvaluateBodySchema, req.body);
+
+      const baselineInput = {
+        tenantId,
+        ...body.baseline,
+      };
+      const candidateInput = {
+        tenantId,
+        ...body.candidate,
+      };
+
+      const result = RecommendationQualityService.evaluateMetrics(
+        baselineInput,
+        candidateInput,
+        body.config
+      );
+
+      res.json(formatSuccess(result));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/quality/review - Human promotion review action (Approve or Reject) */
+router.post('/recommendations/quality/review',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const body = validate(RecommendationPromotionReviewBodySchema, req.body);
+      const branchId = body.branchId || body.branch_id;
+      const reviewerId = req.context?.userId || 'anonymous-reviewer';
+      const reviewerRole = req.context?.role || ROLES.MANAGER;
+
+      // Enforce branch isolation if branchId is specified
+      if (branchId && req.context?.role !== ROLES.SUPER_ADMIN && req.context?.branchIds && req.context.branchIds.length > 0) {
+        if (!req.context.branchIds.includes(branchId)) {
+          throw new ForbiddenError('Caller does not have access to this branch');
+        }
+      }
+
+      const result = await RecommendationPromotionService.reviewCandidate({
+        candidateId: body.candidateId,
+        tenantId,
+        branchId,
+        action: body.action,
+        reviewerId,
+        reviewerRole,
+        reason: body.reason,
+      });
+
+      res.json(formatSuccess(result));
+    } catch (err) { next(err); }
+  }
+);
+
+// ─── Recommendation Experiments (Checkpoint 11) ─────────────
+
+/** POST /api/tenants/:tenantId/menu/recommendations/experiments - Create a new draft experiment */
+router.post('/recommendations/experiments',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const dto = validate(CreateExperimentSchema, req.body) as CreateExperimentDto;
+      const actorId = req.context?.userId;
+      const experiment = await ExperimentService.createExperiment(tenantId, dto, actorId);
+      res.status(201).json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/experiments - List experiments for tenant */
+router.get('/recommendations/experiments',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const query = validate(ExperimentQuerySchema, req.query);
+      const experiments = await ExperimentService.listExperiments(tenantId, query);
+      res.json(formatSuccess(experiments));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/experiments/:id - Get experiment details */
+router.get('/recommendations/experiments/:id',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const experiment = await ExperimentService.getExperiment(tenantId, id);
+      res.json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** PATCH /api/tenants/:tenantId/menu/recommendations/experiments/:id - Update draft experiment */
+router.patch('/recommendations/experiments/:id',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const dto = validate(UpdateExperimentSchema, req.body) as UpdateExperimentDto;
+      const actorId = req.context?.userId;
+      const experiment = await ExperimentService.updateExperiment(tenantId, id, dto, actorId);
+      res.json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/experiments/:id/start - Start draft/paused experiment */
+router.post('/recommendations/experiments/:id/start',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const experiment = await ExperimentService.startExperiment(tenantId, id, actorId);
+      res.json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/experiments/:id/pause - Pause running experiment */
+router.post('/recommendations/experiments/:id/pause',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const experiment = await ExperimentService.pauseExperiment(tenantId, id, actorId);
+      res.json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/experiments/:id/complete - Complete running experiment */
+router.post('/recommendations/experiments/:id/complete',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const experiment = await ExperimentService.completeExperiment(tenantId, id, actorId);
+      res.json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/experiments/:id/archive - Archive completed/paused experiment */
+router.post('/recommendations/experiments/:id/archive',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const experiment = await ExperimentService.archiveExperiment(tenantId, id, actorId);
+      res.json(formatSuccess(experiment));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/experiments/:id/results - Get experiment performance results */
+router.get('/recommendations/experiments/:id/results',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const query = validate(ExperimentAnalyticsQuerySchema, req.query);
+      const results = await ExperimentAnalyticsService.getExperimentResults(tenantId, id, query);
+      res.json(formatSuccess(results));
+    } catch (err) { next(err); }
+  }
+);
 
 /** GET /api/tenants/:tenantId/menu/items/:itemId/recommendations */
 router.get('/items/:itemId/recommendations',
@@ -382,7 +809,8 @@ router.get('/items/:itemId/recommendations',
     try {
       const tenantId = String(req.params.tenantId);
       const itemId   = String(req.params.itemId);
-      const recs = await findRecommendationsForItems(tenantId, [itemId], 100);
+      const includeInactive = req.query.include_inactive !== 'false'; // default true for admin UI
+      const recs = await findAdminRecommendationsForItem(tenantId, itemId, includeInactive);
       res.json(formatSuccess(recs));
     } catch (err) { next(err); }
   }
@@ -397,7 +825,11 @@ router.post('/items/:itemId/recommendations',
       const tenantId = String(req.params.tenantId);
       const itemId   = String(req.params.itemId);
       const dto      = validate(CreateRecommendationSchema, req.body);
-      const rec = await upsertRecommendation(tenantId, itemId, dto);
+      const isSuperAdmin = req.context?.role === ROLES.SUPER_ADMIN;
+      const rec = await createOrReactivateRecommendation(tenantId, itemId, dto, {
+        actorBranchIds: req.context?.branchIds,
+        isSuperAdmin,
+      });
       res.status(201).json(formatSuccess(rec));
     } catch (err) { next(err); }
   }
@@ -418,6 +850,34 @@ router.patch('/recommendations/:recId',
   }
 );
 
+/** POST /api/tenants/:tenantId/menu/recommendations/:recId/deactivate */
+router.post('/recommendations/:recId/deactivate',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; recId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const recId    = String(req.params.recId);
+      const rec = await deactivateRecommendation(tenantId, recId);
+      res.json(formatSuccess(rec));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/:recId/reactivate */
+router.post('/recommendations/:recId/reactivate',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; recId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const recId    = String(req.params.recId);
+      const rec = await reactivateRecommendation(tenantId, recId);
+      res.json(formatSuccess(rec));
+    } catch (err) { next(err); }
+  }
+);
+
 /** DELETE /api/tenants/:tenantId/menu/recommendations/:recId */
 router.delete('/recommendations/:recId',
   requireMinRole(ROLES.MANAGER),
@@ -428,6 +888,214 @@ router.delete('/recommendations/:recId',
       const recId    = String(req.params.recId);
       await softDeleteRecommendation(tenantId, recId);
       res.status(204).send();
+    } catch (err) { next(err); }
+  }
+);
+
+// ─── Recommendation Strategies (Checkpoint 15) ───────────────
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies - Create draft strategy */
+router.post('/recommendations/strategies',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const parsed = validate(CreateStrategySchema, req.body);
+      const dto = {
+        name: parsed.name,
+        description: parsed.description,
+        branchId: parsed.branchId ?? parsed.branch_id ?? null,
+        surface: parsed.surface,
+        configuration: parsed.configuration,
+        parentStrategyId: parsed.parentStrategyId ?? parsed.parent_strategy_id ?? null,
+        isBaseline: parsed.isBaseline ?? parsed.is_baseline ?? false,
+        qualityCandidateId: parsed.qualityCandidateId ?? parsed.quality_candidate_id ?? null,
+      };
+      const actorId = req.context?.userId;
+      const strategy = await RecommendationStrategyService.createDraft(tenantId, dto, actorId);
+      res.status(201).json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/strategies - List strategies */
+router.get('/recommendations/strategies',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const parsed = validate(StrategyQuerySchema, req.query);
+      const query = {
+        status: parsed.status,
+        branchId: parsed.branchId ?? parsed.branch_id,
+        surface: parsed.surface,
+        name: parsed.name,
+      };
+      const strategies = await RecommendationStrategyService.listStrategies(tenantId, query);
+      res.json(formatSuccess(strategies));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/strategies/active - Get current active strategy for scope */
+router.get('/recommendations/strategies/active',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU),
+  async (req: Request<{ tenantId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+      const surface = typeof req.query.surface === 'string' ? (req.query.surface as RecommendationStrategySurface) : 'all';
+      const strategy = await RecommendationStrategyService.getActiveStrategyForServing(tenantId, branchId, surface);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/strategies/:id - Get strategy details */
+router.get('/recommendations/strategies/:id',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU, PERMISSIONS.VIEW_ANALYTICS),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const strategy = await RecommendationStrategyService.getStrategy(tenantId, id);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** PATCH /api/tenants/:tenantId/menu/recommendations/strategies/:id - Update draft strategy */
+router.patch('/recommendations/strategies/:id',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const dto = validate(UpdateStrategySchema, req.body);
+      const actorId = req.context?.userId;
+      const strategy = await RecommendationStrategyService.updateDraft(tenantId, id, dto, actorId);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies/:id/submit-review - Submit draft for review */
+router.post('/recommendations/strategies/:id/submit-review',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const strategy = await RecommendationStrategyService.submitForReview(tenantId, id, actorId);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies/:id/reject-review - Reject review back to draft */
+router.post('/recommendations/strategies/:id/reject-review',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+      const actorId = req.context?.userId;
+      const strategy = await RecommendationStrategyService.rejectReview(tenantId, id, reason, actorId);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies/:id/approve - Approve strategy (does NOT activate) */
+router.post('/recommendations/strategies/:id/approve',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const parsed = req.body ? validate(StrategyApprovalSchema, req.body) : undefined;
+      const dto = parsed
+        ? {
+            reason: parsed.reason,
+            qualityCandidateId: parsed.qualityCandidateId ?? parsed.quality_candidate_id ?? null,
+            overrideQualityGate: parsed.overrideQualityGate ?? parsed.override_quality_gate ?? false,
+          }
+        : undefined;
+      const actorId = req.context?.userId;
+      const strategy = await RecommendationStrategyService.approveStrategy(tenantId, id, dto, actorId);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies/:id/activate - Atomically activate approved strategy */
+router.post('/recommendations/strategies/:id/activate',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const result = await RecommendationStrategyService.activateStrategy(tenantId, id, actorId);
+      res.json(formatSuccess(result));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies/:id/rollback - Rollback to approved/retired strategy */
+router.post('/recommendations/strategies/:id/rollback',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const parsed = validate(StrategyRollbackSchema, { targetStrategyId: id, ...req.body });
+      const actorId = req.context?.userId;
+      const result = await RecommendationStrategyService.rollbackStrategy(
+        tenantId,
+        parsed.targetStrategyId || id,
+        parsed.reason,
+        actorId
+      );
+      res.json(formatSuccess(result));
+    } catch (err) { next(err); }
+  }
+);
+
+/** POST /api/tenants/:tenantId/menu/recommendations/strategies/:id/retire - Retire active/approved strategy */
+router.post('/recommendations/strategies/:id/retire',
+  requireMinRole(ROLES.MANAGER),
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU),
+  async (req: Request<{ tenantId: string; id: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const actorId = req.context?.userId;
+      const strategy = await RecommendationStrategyService.retireStrategy(tenantId, id, actorId);
+      res.json(formatSuccess(strategy));
+    } catch (err) { next(err); }
+  }
+);
+
+/** GET /api/tenants/:tenantId/menu/recommendations/strategies/:id/compare/:otherId - Compare two strategies */
+router.get('/recommendations/strategies/:id/compare/:otherId',
+  requirePermissions('ANY', PERMISSIONS.MANAGE_MENU, PERMISSIONS.VIEW_MENU),
+  async (req: Request<{ tenantId: string; id: string; otherId: string }>, res, next) => {
+    try {
+      const tenantId = String(req.params.tenantId);
+      const id = String(req.params.id);
+      const otherId = String(req.params.otherId);
+      const comparison = await RecommendationStrategyService.compareStrategies(tenantId, id, otherId);
+      res.json(formatSuccess(comparison));
     } catch (err) { next(err); }
   }
 );

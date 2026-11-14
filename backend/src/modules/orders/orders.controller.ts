@@ -53,6 +53,9 @@ const listOrdersQuerySchema = z.object({
     'pending', 'accepted', 'preparing', 'ready',
     'delivered', 'completed', 'cancelled', 'sync_conflict',
   ]).optional(),
+  active: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
+  activeOnly: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
+  tableId: z.string().uuid().optional(),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -286,8 +289,12 @@ export async function listBranchOrders(req: any, res: Response, next: any): Prom
       throw new AppError('Missing tenant identification context.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const { branchId, status } = parsed.data;
-    const orders = await ordersService.listBranchOrders(tenantId, branchId, { status: status as OrderStatus });
+    const { branchId, status, active, activeOnly, tableId } = parsed.data;
+    const orders = await ordersService.listBranchOrders(tenantId, branchId, {
+      status: status as OrderStatus,
+      activeOnly: active || activeOnly,
+      tableId,
+    });
     res.status(200).json({ status: 'success', data: { orders } });
   } catch (err) {
     next(err);

@@ -102,6 +102,8 @@ export const CreateMenuItemSchema = z.object({
   thumbnail_url:      z.string().nullable().optional(),
   modifier_group_ids: z.array(uuid).max(20).nullable().optional(),
   status:             z.enum(ITEM_STATUSES).optional(),
+  recommendation_enabled: z.boolean().optional().default(true),
+  recommendation_tags: z.array(z.string()).optional().default([]).transform(tags => Array.from(new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean)))),
 });
 
 export const UpdateMenuItemSchema = z.object({
@@ -123,6 +125,8 @@ export const UpdateMenuItemSchema = z.object({
   status:             z.enum(ITEM_STATUSES).optional(),
   image_url:          z.string().nullable().optional(),
   thumbnail_url:      z.string().nullable().optional(),
+  recommendation_enabled: z.boolean().optional(),
+  recommendation_tags: z.array(z.string()).optional().transform(tags => tags ? Array.from(new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))) : undefined),
   version_num:        z.number().int().min(1),
 });
 
@@ -245,20 +249,157 @@ export const MenuCategoryListQuerySchema = z.object({
 
 // ─── Recommendation Schemas ─────────────────────────────────────
 
-const RECOMMENDATION_TYPES = ['complementary', 'variant', 'beverage', 'upsell', 'popular_pair'] as const;
+export const CANONICAL_RECOMMENDATION_TYPES = [
+  'complementary',
+  'admin_selected',
+  'complete_meal',
+  'similar',
+  'popular',
+  'frequently_bought',
+  'dont_recommend',
+] as const;
+
+export type CanonicalRecommendationType = (typeof CANONICAL_RECOMMENDATION_TYPES)[number];
 
 export const CreateRecommendationSchema = z.object({
   branch_id:                optUuid,
   recommended_menu_item_id: uuid,
-  recommendation_type:      z.enum(RECOMMENDATION_TYPES),
-  priority:                 z.number().int().optional().default(0),
+  recommendation_type:      z.enum(CANONICAL_RECOMMENDATION_TYPES),
+  priority:                 z.number().int().min(0).max(3).optional().default(2),
 });
 
 export const UpdateRecommendationSchema = z.object({
   branch_id:                uuid.nullable().optional(),
   recommended_menu_item_id: uuid.optional(),
-  recommendation_type:      z.enum(RECOMMENDATION_TYPES).optional(),
-  priority:                 z.number().int().optional(),
+  recommendation_type:      z.enum(CANONICAL_RECOMMENDATION_TYPES).optional(),
+  priority:                 z.number().int().min(0).max(3).optional(),
   is_active:                z.boolean().optional(),
 });
+
+export const RecommendationAnalyticsQuerySchema = z.object({
+  branchId:            optUuid,
+  branch_id:           optUuid,
+  sourceItemId:        optUuid,
+  source_item_id:      optUuid,
+  recommendedItemId:   optUuid,
+  recommended_item_id: optUuid,
+  reasonCode:          z.string().max(50).optional(),
+  reason_code:         z.string().max(50).optional(),
+  surface:             z.enum(['cart', 'item_detail', 'api']).optional(),
+  range:               z.enum(['today', '7d', '30d', 'custom']).optional().default('7d'),
+  from:                z.string().optional(),
+  to:                  z.string().optional(),
+  limit:               z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+export const RecommendationOptimizationQuerySchema = z.object({
+  branchId:                  optUuid,
+  branch_id:                 optUuid,
+  sourceItemId:              optUuid,
+  source_item_id:            optUuid,
+  recommendedItemId:         optUuid,
+  recommended_item_id:       optUuid,
+  reasonCode:                z.string().max(50).optional(),
+  reason_code:               z.string().max(50).optional(),
+  insightType:               z.string().max(50).optional(),
+  insight_type:              z.string().max(50).optional(),
+  severity:                  z.enum(['info', 'notice', 'warning']).optional(),
+  range:                     z.enum(['today', '7d', '30d', 'custom']).optional().default('7d'),
+  from:                      z.string().optional(),
+  to:                        z.string().optional(),
+  limit:                     z.coerce.number().int().min(1).max(100).optional().default(20),
+  includeInsufficientData:   z.coerce.boolean().optional().default(false),
+  include_insufficient_data: z.coerce.boolean().optional().default(false),
+});
+
+export const RecommendationEvaluationQuerySchema = z.object({
+  branchId:  optUuid,
+  branch_id: optUuid,
+  range:     z.enum(['today', '7d', '30d']).optional().default('7d'),
+});
+
+export const RecommendationReplayBodySchema = z.object({
+  branchId:             optUuid,
+  branch_id:            optUuid,
+  sourceItemIds:        z.array(uuid).min(1).max(20),
+  cartItemIds:          z.array(uuid).max(50).optional(),
+  surface:              z.enum(['cart', 'item_detail', 'api']).optional().default('api'),
+  limit:                z.number().int().min(1).max(10).optional().default(5),
+  experimentVariantKey: z.string().max(50).optional(),
+});
+
+export const RecommendationQualityQuerySchema = z.object({
+  branchId:      optUuid,
+  branch_id:     optUuid,
+  surface:       z.enum(['cart', 'item_detail', 'api', 'all']).optional(),
+  status:        z.enum([
+    'insufficient_data',
+    'failing',
+    'regression',
+    'neutral',
+    'promising',
+    'qualified',
+    'blocked',
+    'approved',
+    'rejected',
+  ]).optional(),
+  experimentId:  optUuid,
+  experiment_id: optUuid,
+});
+
+export const RecommendationPromotionReviewBodySchema = z.object({
+  candidateId: uuid,
+  action:      z.enum(['approve', 'reject']),
+  branchId:    optUuid,
+  branch_id:   optUuid,
+  reason:      z.string().max(500).optional(),
+});
+
+export const RecommendationQualityEvaluateBodySchema = z.object({
+  baseline: z.object({
+    tenantId:             uuid.optional(),
+    branchId:             optUuid,
+    surface:              z.enum(['cart', 'item_detail', 'api', 'all']).optional(),
+    variantKey:           z.string().max(50).optional(),
+    exposures:            z.number().int().min(0),
+    clicks:               z.number().int().min(0),
+    addToCart:            z.number().int().min(0),
+    emptyResults:         z.number().int().min(0).optional().default(0),
+    successfulRequests:   z.number().int().min(0).optional(),
+    totalRecommendations: z.number().int().min(0).optional().default(0),
+    avgLatencyMs:         z.number().min(0).optional(),
+    hardRuleViolations:   z.number().int().min(0).optional().default(0),
+  }),
+  candidate: z.object({
+    tenantId:             uuid.optional(),
+    branchId:             optUuid,
+    surface:              z.enum(['cart', 'item_detail', 'api', 'all']).optional(),
+    variantKey:           z.string().max(50).optional(),
+    exposures:            z.number().int().min(0),
+    clicks:               z.number().int().min(0),
+    addToCart:            z.number().int().min(0),
+    emptyResults:         z.number().int().min(0).optional().default(0),
+    successfulRequests:   z.number().int().min(0).optional(),
+    totalRecommendations: z.number().int().min(0).optional().default(0),
+    avgLatencyMs:         z.number().min(0).optional(),
+    hardRuleViolations:   z.number().int().min(0).optional().default(0),
+  }),
+  config: z.object({
+    minTotalExposures:         z.number().int().min(0).optional(),
+    minVariantExposures:       z.number().int().min(0).optional(),
+    minClicksForAtc:           z.number().int().min(0).optional(),
+    minRelativeCtrLift:        z.number().optional(),
+    minRelativeAtcLift:        z.number().optional(),
+    maxRelativeCtrRegression:  z.number().optional(),
+    maxRelativeAtcRegression:  z.number().optional(),
+    maxEmptyRateRegression:    z.number().optional(),
+    maxLatencyRegression:      z.number().optional(),
+  }).optional(),
+});
+
+// ─── Recommendation Strategies (Checkpoint 15) ───────────────
+export * from './strategies/recommendation-strategy.validators';
+
+
+
 

@@ -15,7 +15,7 @@ export class AppError extends Error {
   constructor(
     message: string,
     statusCode: number,
-    code: string | ErrorCode,
+    code: string | ErrorCode = 'BAD_REQUEST',
     isOperational = true,
     details?: unknown
   ) {
@@ -95,11 +95,27 @@ export class MustChangePasswordError extends AppError {
   }
 }
 
+// ─── 400 ──────────────────────────────────────────────────────
+
+export class BadRequestError extends AppError {
+  constructor(message = 'Bad request') {
+    super(message, 400, 'BAD_REQUEST');
+  }
+}
+
 // ─── 404 ──────────────────────────────────────────────────────
 
 export class NotFoundError extends AppError {
   constructor(resource = 'Resource') {
     super(`${resource} not found`, 404, 'NOT_FOUND');
+  }
+}
+
+// ─── 409 ──────────────────────────────────────────────────────
+
+export class ConflictError extends AppError {
+  constructor(message = 'Resource conflict') {
+    super(message, 409, 'CONFLICT');
   }
 }
 

@@ -207,11 +207,11 @@ export async function createOrderFromCart(params: {
   // 4. Create immutable order snapshots (reads cart, runs database-level snapshot inserts)
   const snapshotId = await createOrderSnapshot(tenantId, cartId, cart.version_num, customerName);
 
-  // 4. Generate client side UUIDs for the transaction
+  // 5. Generate client side UUIDs for the transaction
     const orderId = crypto.randomUUID();
     const invoiceId = crypto.randomUUID();
 
-    // 5. Generate daily sequential order and invoice numbers atomically via branch sequence allocation
+    // 6. Generate daily sequential order and invoice numbers atomically via branch sequence allocation
     const orderNumber = await allocateSequenceNumber({
       tenantId,
       branchId: cart.branch_id,
@@ -271,8 +271,13 @@ export async function createOrderFromCart(params: {
         );
       }
 
-      if (error!.message.includes('resolved_at') || error!.message.includes('column')) {
-        logger.warn({ error: error.message }, '[OrderService] DB RPC failed on schema column check, executing direct atomic checkout fallback');
+      if (
+        error!.message.includes('resolved_at') ||
+        error!.message.includes('column') ||
+        error!.message.includes('Could not find the function') ||
+        error!.message.includes('schema cache')
+      ) {
+        logger.warn({ error: error.message }, '[OrderService] DB RPC failed or not present, executing direct atomic checkout fallback');
         
         // 1. Lock cart
         await supabaseAdmin.from('carts').update({
@@ -304,18 +309,31 @@ export async function createOrderFromCart(params: {
           throw new AppError(`Fallback order creation failed: ${orderInsError.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
         }
 
+        const computedSubtotal = cartItems.reduce((acc, item) => {
+          const itemMods = modifiers.filter(m => m.cart_item_id === item.id);
+          const modTotal = itemMods.reduce((mAcc, m) => mAcc + Number(m.price_delta_minor_snapshot || 0), 0);
+          return acc + ((Number(item.unit_price_minor_snapshot || 0) + modTotal) * item.quantity);
+        }, 0);
+
         // 3. Insert invoice
-        await supabaseAdmin.from('invoices').insert({
+        const { error: invError } = await supabaseAdmin.from('invoices').insert({
           id: invoiceId,
           tenant_id: tenantId,
           branch_id: cart.branch_id,
           order_id: orderId,
+          order_snapshot_id: snapshotId,
           invoice_number: invoiceNumber,
-          status: 'unpaid',
-          subtotal_minor: (cart as any).subtotal_minor || 0,
-          tax_minor: (cart as any).tax_minor || 0,
-          total_minor: (cart as any).total_minor || 0,
+          status: 'draft',
+          subtotal_minor: computedSubtotal,
+          tax_total_minor: 0,
+          discount_total_minor: 0,
+          grand_total_minor: computedSubtotal,
+          amount_paid_minor: 0,
         });
+
+        if (invError) {
+          logger.error({ error: invError.message }, '[OrderService] Failed to insert invoice in fallback');
+        }
 
         responseData = { order_id: orderId, invoice_id: invoiceId, status: 'pending' };
       } else {
@@ -667,6 +685,15 @@ export async function transitionOrderStatus(params: {
     );
   }
 
+  // ── Broadcast order_update to POS and Staff terminals on OPERATIONAL_STREAM ──
+  WebSocketManager.getInstance().broadcastToBranch(
+    updatedOrder.branch_id,
+    'ORDERING',
+    'OPERATIONAL_STREAM',
+    'order_update',
+    updatedOrder
+  );
+
   return updatedOrder;
 }
 
@@ -681,7 +708,7 @@ export async function getOrder(tenantId: string, id: string): Promise<ordersRepo
 export async function listBranchOrders(
   tenantId: string,
   branchId: string,
-  filters?: { status?: ordersRepo.OrderStatus }
+  filters?: { status?: ordersRepo.OrderStatus; activeOnly?: boolean; tableId?: string }
 ): Promise<ordersRepo.Order[]> {
   return ordersRepo.listOrdersByBranch(tenantId, branchId, filters);
 }

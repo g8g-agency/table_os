@@ -1,5 +1,6 @@
 /* eslint-disable */
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { supabase } from '../lib/supabase.js'
 import { useAuthStore } from './authStore.js'
 import { useRuntimeIdentityStore } from './runtimeIdentityStore.js'
@@ -68,58 +69,63 @@ export const useOrderStore = create((set, get) => ({
 
     set({ isLoading: true });
 
-    const now = new Date();
-    let fromDate = null;
+    // Build query params for the backend REST endpoint.
+    // The backend uses service_role server-side — no direct browser access to order_items.
+    const params = new URLSearchParams({ branchId });
     if (filter === 'day') {
-      fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      params.set('from', start.toISOString());
     } else if (filter === 'week') {
-      fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      params.set('from', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
     } else if (filter === 'month') {
-      fromDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      params.set('from', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
     }
 
-    // Step 1: fetch orders
-    const query = supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('branch_id', branchId)
-      .in('status', ['delivered', 'cancelled'])
-      .order('created_at', { ascending: false })
-      .limit(50);
+    try {
+      // Inject the admin access token so the backend can authorize the request.
+      const token = useAuthStore.getState().accessToken;
+      const res = await fetch(`/api/v1/orders?${params.toString()}&status=delivered,cancelled`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
 
-    if (fromDate) query.gte('created_at', fromDate);
+      if (!res.ok) {
+        console.error('[fetchHistory] REST API error:', res.status);
+        set({ isLoading: false });
+        return;
+      }
 
-    const { data, error } = await query;
-    console.log('[fetchHistory] data:', data?.length, 'error:', error);
-    if (error || !data) {
+      const json = await res.json();
+      const data = (json.data || json.orders || []).slice(0, 50);
+      console.log('[fetchHistory] data:', data.length, 'orders via REST API');
+
+      // Step 2: batch fetch table display names (tables has its own RLS)
+      const tableIds = [...new Set(data.map(o => o.table_id).filter(Boolean))];
+      let tableMap = {};
+      if (tableIds.length > 0) {
+        const { data: tables, error: tablesError } = await supabase
+          .from('tables')
+          .select('id, table_number, display_name')
+          .in('id', tableIds);
+        console.log('[fetchHistory] tables fetched:', tables?.length, 'error:', tablesError);
+        tableMap = Object.fromEntries(
+          (tables || []).map(t => [t.id, t.table_number ?? t.display_name ?? '?'])
+        );
+      }
+
+      // Step 3: normalize — backend returns items[] from snapshot join;
+      // fall back to order_items[] for legacy rows already in order_items.
+      const normalized = data.map(row => ({
+        ...normalizeOrder(row),
+        tableNum: tableMap[row.table_id] ?? row.order_number ?? '?',
+        items: (row.items || row.order_items || []).map(normalizeOrderItem),
+      }));
+
+      set({ historyOrders: normalized, isLoading: false });
+    } catch (err) {
+      console.error('[fetchHistory] Unexpected error:', err);
       set({ isLoading: false });
-      return;
     }
-
-    // Step 2: batch fetch table numbers
-    const tableIds = [...new Set(data.map(o => o.table_id).filter(Boolean))];
-    let tableMap = {};
-    if (tableIds.length > 0) {
-      const { data: tables, error: tablesError } = await supabase
-        .from('tables')
-        .select('id, table_number, display_name')
-        .in('id', tableIds);
-      
-      console.log('[fetchHistory] tables fetched:', tables?.length, 'error:', tablesError);
-
-      tableMap = Object.fromEntries(
-        (tables || []).map(t => [t.id, t.table_number ?? t.display_name ?? '?'])
-      );
-    }
-
-    // Step 3: normalize
-    const normalized = data.map(row => ({
-      ...normalizeOrder(row),
-      tableNum: tableMap[row.table_id] ?? row.order_number ?? '?',
-      items: (row.order_items || []).map(normalizeOrderItem),
-    }));
-
-    set({ historyOrders: normalized, isLoading: false });
   },
 }))
 
@@ -156,51 +162,132 @@ export const useTableStore = create((set) => ({
   },
 }))
 
-// ─── CART STORE (local only, no DB) ──────────────────────────────────────────
-export const useCartStore = create((set) => ({
-  items: [],
-  note: '',
-  addItem: (item) => set(s => {
-    // Check if item with same ID and modifiers already exists
-    const existing = s.items.find(i =>
-      i.id === item.id &&
-      JSON.stringify(i.modifiers || []) === JSON.stringify(item.modifiers || [])
-    )
-    if (existing) {
-      return {
-        items: s.items.map(i =>
-          (i.id === item.id && JSON.stringify(i.modifiers || []) === JSON.stringify(item.modifiers || []))
-            ? { ...i, qty: i.qty + (item.qty || 1) }
-            : i
-        )
-      }
+// ─── CART STORE (persistent diner session) ──────────────────────────────────
+export function areCartModifiersEqual(modsA = [], modsB = []) {
+  if (!Array.isArray(modsA) || !Array.isArray(modsB)) {
+    return (modsA || []).length === (modsB || []).length;
+  }
+  if (modsA.length !== modsB.length) return false;
+  const normalize = (mods) =>
+    mods
+      .map(m => {
+        if (!m) return '';
+        if (typeof m === 'string') return m;
+        const groupId = m.modifier_group_id || m.modifierGroupId || '';
+        const optId = m.modifier_option_id || m.modifierOptionId || m.id || '';
+        const name = m.name || m.modifier_option_name_snapshot || '';
+        return `${groupId}:${optId}:${name}`;
+      })
+      .sort()
+      .join('|');
+  return normalize(modsA) === normalize(modsB);
+}
+
+export const useCartStore = create(
+  persist(
+    (set) => ({
+      items: [],
+      note: '',
+      tenantId: null,
+      branchId: null,
+
+      reconcileSession: ({ tenantId, branchId }) => set(s => {
+        // If tenant changed, clear cart to prevent cross-tenant contamination
+        if (s.tenantId && tenantId && s.tenantId !== tenantId) {
+          return {
+            items: [],
+            note: '',
+            tenantId,
+            branchId: branchId || s.branchId,
+          };
+        }
+        // If branch changed within same tenant, clear cart to avoid branch override/inventory issues
+        if (s.branchId && branchId && s.branchId !== branchId) {
+          return {
+            items: [],
+            note: '',
+            tenantId: tenantId || s.tenantId,
+            branchId,
+          };
+        }
+        return {
+          tenantId: tenantId || s.tenantId,
+          branchId: branchId || s.branchId,
+        };
+      }),
+
+      addItem: (item) => set(s => {
+        const itemNote = (item.note || item.itemNotes || '').trim();
+        const existing = s.items.find(i =>
+          i.id === item.id &&
+          areCartModifiersEqual(i.modifiers, item.modifiers) &&
+          (i.note || i.itemNotes || '').trim() === itemNote
+        );
+        const addQty = Math.max(1, Math.min(item.qty || 1, 99));
+
+        if (existing) {
+          const clampedQty = Math.min(existing.qty + addQty, 99);
+          return {
+            items: s.items.map(i =>
+              (i.id === item.id &&
+               areCartModifiersEqual(i.modifiers, item.modifiers) &&
+               (i.note || i.itemNotes || '').trim() === itemNote)
+                ? { ...i, qty: clampedQty }
+                : i
+            )
+          };
+        }
+        return {
+          items: [...s.items, {
+            ...item,
+            note: itemNote,
+            qty: addQty
+          }]
+        };
+      }),
+
+      removeItem: (id, modifiers, note) => set(s => {
+        const noteFilter = typeof note === 'string' ? note.trim() : null;
+        return {
+          items: s.items.filter(i => {
+            const matchId = i.id === id;
+            const matchMods = areCartModifiersEqual(i.modifiers, modifiers);
+            const matchNote = noteFilter === null || (i.note || i.itemNotes || '').trim() === noteFilter;
+            return !(matchId && matchMods && matchNote);
+          })
+        };
+      }),
+
+      updateQty: (id, modifiers, qty, note) => set(s => {
+        const noteFilter = typeof note === 'string' ? note.trim() : null;
+        const isMatch = (i) =>
+          i.id === id &&
+          areCartModifiersEqual(i.modifiers, modifiers) &&
+          (noteFilter === null || (i.note || i.itemNotes || '').trim() === noteFilter);
+
+        if (qty <= 0) {
+          return {
+            items: s.items.filter(i => !isMatch(i))
+          };
+        }
+        const clampedQty = Math.min(qty, 99);
+        return {
+          items: s.items.map(i =>
+            isMatch(i)
+              ? { ...i, qty: clampedQty }
+              : i
+          )
+        };
+      }),
+
+      setNote: (note) => set({ note }),
+      clear: () => set({ items: [], note: '' }),
+    }),
+    {
+      name: 'orderlii_diner_cart',
     }
-    return { items: [...s.items, { ...item, qty: item.qty || 1 }] }
-  }),
-  removeItem: (id, modifiers) => set(s => ({
-    items: s.items.filter(i =>
-      !(i.id === id && JSON.stringify(i.modifiers || []) === JSON.stringify(modifiers || []))
-    )
-  })),
-  updateQty: (id, modifiers, qty) => set(s => {
-    if (qty <= 0) {
-      return {
-        items: s.items.filter(i =>
-          !(i.id === id && JSON.stringify(i.modifiers || []) === JSON.stringify(modifiers || []))
-        )
-      }
-    }
-    return {
-      items: s.items.map(i =>
-        (i.id === id && JSON.stringify(i.modifiers || []) === JSON.stringify(modifiers || []))
-          ? { ...i, qty }
-          : i
-      )
-    }
-  }),
-  setNote: (note) => set({ note }),
-  clear: () => set({ items: [], note: '' }),
-}))
+  )
+)
 
 // ─── MENU STORE ───────────────────────────────────────────────────────────────
 export const useMenuStore = create((set, get) => ({

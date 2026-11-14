@@ -95,13 +95,16 @@ export async function authenticate(
       if (!validation.valid) {
         throw new AuthenticationError('Invalid authentication token');
       }
+      const headerTenantId = (req.headers['x-tenant-id'] as string | undefined) || (req.query.tenant_id as string | undefined);
+      const effectiveTenantId = validation.tenant_id || headerTenantId || null;
+
       context = {
         id:                   validation.user_id!,
         userId:               validation.user_id!,
         email:                validation.email ?? '',
         role:                 validation.role as Role,
-        tenantId:             validation.tenant_id!,
-        tenant_id:            validation.tenant_id!,
+        tenantId:             effectiveTenantId,
+        tenant_id:            effectiveTenantId,
         branchIds:            validation.branch_ids ?? [],
         permissions:          await resolvePermissionsByRole(validation.role as Role),
         device_session_id:    '', // Admin app doesn't rely on strict single device sessions here

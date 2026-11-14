@@ -27,7 +27,8 @@ router.get('/:sessionId/bill', async (req: Request, res: Response, next: NextFun
       return;
     }
 
-    const bill = await TableSessionsService.getBill(tenantId, sessionId);
+    const branchId = (req.context as any)?.branchId || (req.context as any)?.branch_id || (req.context as any)?.branchIds?.[0];
+    const bill = await TableSessionsService.getBill(tenantId, sessionId, { branchId });
 
     res.status(200).json({ success: true, data: bill });
   } catch (err) {

@@ -21,8 +21,9 @@ export class BillAggregationService {
     tableId: string | null;
     sessionId: string | null;
     orderIds: string[];
+    snapshotIds?: string[];
   }): Promise<BillDTO> {
-    const { tenantId, branchId, tableId, sessionId, orderIds } = params;
+    const { tenantId, branchId, tableId, sessionId, orderIds, snapshotIds } = params;
 
     if (orderIds.length === 0) {
       throw new AppError('Cannot aggregate empty order list into a bill.', 400, ErrorCode.VALIDATION_ERROR);
@@ -30,7 +31,7 @@ export class BillAggregationService {
 
     try {
       // 1. Fetch Order Snapshots and their line items, modifiers, and taxes
-      const { data: orderSnapshots, error: snapErr } = await supabaseAdmin
+      let query = supabaseAdmin
         .from('order_snapshots')
         .select(`
           id,
@@ -69,8 +70,15 @@ export class BillAggregationService {
             jurisdiction_snapshot
           )
         `)
-        .eq('tenant_id', tenantId)
-        .in('order_id', orderIds);
+        .eq('tenant_id', tenantId);
+
+      if (snapshotIds && snapshotIds.length > 0) {
+        query = query.in('id', snapshotIds);
+      } else {
+        query = query.in('order_id', orderIds);
+      }
+
+      const { data: orderSnapshots, error: snapErr } = await query;
 
       if (snapErr) {
         throw new AppError(`Failed to fetch order snapshots: ${snapErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);

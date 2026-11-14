@@ -39,9 +39,14 @@ export const LockCartSchema = z.object({
   version_num: z.number().int().min(1),
 }).strict();
 
+export const ClearCartSchema = z.object({
+  version_num: z.number().int().min(1).optional(),
+}).strict();
+
 export type CreateCartInput = z.infer<typeof CreateCartSchema>;
 export type AddCartItemInput = z.infer<typeof AddCartItemSchema>;
 export type UpdateCartItemInput = z.infer<typeof UpdateCartItemSchema>;
 export type RemoveCartItemInput = z.infer<typeof RemoveCartItemSchema>;
 export type UpdateCartNotesInput = z.infer<typeof UpdateCartNotesSchema>;
 export type LockCartInput = z.infer<typeof LockCartSchema>;
+export type ClearCartInput = z.infer<typeof ClearCartSchema>;

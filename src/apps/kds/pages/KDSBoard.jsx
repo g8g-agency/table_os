@@ -13,6 +13,8 @@ import { clearAllRuntimeState } from '../../../lib/idbStorage.js';
 import OrderCard from '../components/OrderCard.jsx';
 import { Loader2 } from 'lucide-react';
 import { runtime } from '../../../runtime/index.js';
+import { WebSocketRuntime } from '../../../lib/transport/WebSocketRuntime.js';
+import { resolveWsUrl } from '../../../lib/resolveApiBaseUrl.js';
 
 /* ═══════════════════════════════════════════════════
    KDSBoard — connects to Supabase realtime
@@ -102,19 +104,47 @@ const KDSBoard = () => {
     // Attempt lock acquisition on mount or station change removed
 
     if (activeTab === 'Live Orders') {
-      if (liveOrders.length === 0) setRealtimeStatus('connecting');
       Promise.all([
         rebuildOrders(branchId, stationId),
         rebuildMetrics(branchId, stationId)
-      ]).then(() => setRealtimeStatus('connected'));
+      ]);
     } else {
-      if (historyOrders.length === 0) setRealtimeStatus('connecting');
-      fetchHistory(historyFilter, branchId).then(() => setRealtimeStatus('connected'));
+      fetchHistory(historyFilter, branchId);
     }
 
     // No probe needed, ProjectionCoordinator + WebSocketRuntime handles lifecycle
     
   }, [tenantId, branchId, stationId, activeTab, rebuildOrders, rebuildMetrics, fetchHistory, historyFilter]);
+
+  /* ── WebSocket Lifecycle & Transport State Binding ── */
+  useEffect(() => {
+    let runtimeInstance = null;
+    try {
+      const wsUrl = resolveWsUrl();
+      runtimeInstance = WebSocketRuntime.getInstance(wsUrl);
+      runtimeInstance.connect();
+    } catch (err) {
+      console.error('[KDSBoard] Failed to initialize WebSocketRuntime:', err);
+    }
+
+    const unsubTransport = useTransportStore.subscribe((state) => {
+      const s = state.state;
+      if (s === 'CONNECTED') {
+        setRealtimeStatus('connected');
+      } else if (s === 'CONNECTING' || s === 'RECONNECTING' || s === 'AUTHENTICATING') {
+        setRealtimeStatus('connecting');
+      } else {
+        setRealtimeStatus('disconnected');
+      }
+    });
+
+    return () => {
+      unsubTransport();
+      if (runtimeInstance) {
+        runtimeInstance.disconnect();
+      }
+    };
+  }, []);
 
   /* ── Real-time WebSocket subscription: auto-refresh KDS on new orders ── */
   useEffect(() => {
@@ -134,7 +164,13 @@ const KDSBoard = () => {
     const unsubOps = useTransportStore.getState().subscribe('OPERATIONAL_STREAM', (envelope) => {
       const eventType = envelope?.event_type;
       console.log('\n[KDSBoard] OPERATIONAL_STREAM EVENT:', eventType, envelope);
-      if (eventType === 'order_update' || eventType === 'order_assigned') {
+      if (
+        eventType === 'order_update' ||
+        eventType === 'order_assigned' ||
+        eventType === 'order.created' ||
+        eventType === 'order.updated' ||
+        eventType === 'order.ready'
+      ) {
         triggerRebuild();
       }
     });

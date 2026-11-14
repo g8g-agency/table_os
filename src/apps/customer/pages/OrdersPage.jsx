@@ -50,23 +50,29 @@ export default function OrdersPage() {
         if (ordersError) throw ordersError;
 
         if (fetchedOrders && fetchedOrders.length > 0) {
-          const orderIds = fetchedOrders.map(o => o.id);
-          const { data: itemsData } = await supabase
-            .from('order_items')
-            .select('*')
-            .in('order_id', orderIds);
+          const enrichedOrders = await Promise.all(
+            fetchedOrders.map(async (o) => {
+              try {
+                const res = await fetchWithRuntime(
+                  `/api/v1/customer/orders/${o.id}?tenantId=${activeTenantId}&tableId=${tableId}`
+                );
+                if (res.ok) {
+                  const json = await res.json();
+                  const details = json.data || json;
+                  return {
+                    ...o,
+                    order_items: details.order_items || details.items || [],
+                  };
+                }
+              } catch (e) {
+                console.warn('[OrdersPage] could not fetch details for order', o.id, e);
+              }
+              return { ...o, order_items: [] };
+            })
+          );
 
           if (cancelled) return;
-          const itemsByOrder = (itemsData || []).reduce((acc, item) => {
-            acc[item.order_id] = acc[item.order_id] || [];
-            acc[item.order_id].push(item);
-            return acc;
-          }, {});
-
-          setOrders(fetchedOrders.map(o => ({
-            ...o,
-            order_items: itemsByOrder[o.id] || []
-          })));
+          setOrders(enrichedOrders);
         } else {
           setOrders([]);
         }

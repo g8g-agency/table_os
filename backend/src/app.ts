@@ -75,48 +75,57 @@ export function createApp(): express.Application {
 
 
   // ─── CORS ──────────────────────────────────────────────────
-  app.use(
-    cors({
-      origin: (requestOrigin, callback) => {
-        if (!requestOrigin) return callback(null, true);
-        if (
-          requestOrigin.startsWith('http://localhost:') ||
-          requestOrigin.startsWith('http://127.0.0.1:') ||
-          requestOrigin.startsWith('http://192.168.') ||
-          requestOrigin.startsWith('http://10.') ||
-          requestOrigin.startsWith('http://30.')
-        ) {
-          return callback(null, true);
-        }
-        if (corsOrigins.includes(requestOrigin)) {
-          return callback(null, true);
-        }
-        return callback(new ForbiddenError('Not allowed by CORS'));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Device-Fingerprint',
-        'X-Device-Session-Id',
-        'X-Forwarded-For',
-        'X-QR-Session-Token',
-        'X-Retry-Count',
-        'x-request-id',
-        'Idempotency-Key',
-        'X-Idempotency-Key',
-        'X-Branch-Id',
-        'X-Terminal-Id',
-        'X-Tenant-Id',
-      ],
-    })
-  );
+  const corsOptions: cors.CorsOptions = {
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin) return callback(null, true);
+      if (
+        requestOrigin.startsWith('http://localhost:') ||
+        requestOrigin.startsWith('http://127.0.0.1:') ||
+        requestOrigin.startsWith('http://192.168.') ||
+        requestOrigin.startsWith('http://10.') ||
+        requestOrigin.startsWith('http://30.')
+      ) {
+        return callback(null, true);
+      }
+      // Allow project Render deployments (e.g. table-os.onrender.com, table-os-1.onrender.com)
+      // and official Orderlii domains while rejecting arbitrary external origins.
+      if (
+        /^https:\/\/[a-zA-Z0-9-]+\.onrender\.com$/.test(requestOrigin) ||
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlyy\.com$/.test(requestOrigin) ||
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlli\.com$/.test(requestOrigin)
+      ) {
+        return callback(null, true);
+      }
+      if (corsOrigins.includes(requestOrigin)) {
+        return callback(null, true);
+      }
+      return callback(new ForbiddenError('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Device-Fingerprint',
+      'X-Device-Session-Id',
+      'X-Forwarded-For',
+      'X-QR-Session-Token',
+      'X-Retry-Count',
+      'x-request-id',
+      'Idempotency-Key',
+      'X-Idempotency-Key',
+      'X-Branch-Id',
+      'X-Terminal-Id',
+      'X-Tenant-Id',
+    ],
+  };
+
+  app.use(cors(corsOptions));
 
   // ─── OPTIONS Preflight (must be before all routes) ─────────────────────
   // Required so browser preflights for credentialed cross-origin requests
-  // receive the-correct CORS headers before touching any authenticated route.
-  app.options('*', cors());
+  // receive the correct CORS headers before touching any authenticated route.
+  app.options('*', cors(corsOptions));
 
   // ─── Observability Context Propagation ─────────────────────
   app.use(ObservabilityService.observabilityMiddleware);

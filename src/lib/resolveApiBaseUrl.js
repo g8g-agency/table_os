@@ -10,9 +10,31 @@ export function resolveApiBaseUrl() {
     return `http://${window.location.hostname}:3001`;
   }
 
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+  const configured = import.meta.env.VITE_API_URL;
+  if (configured) {
+    let normalized = configured.trim().replace(/\/+$/, '');
+    if (normalized.endsWith('/api/v1')) {
+      normalized = normalized.slice(0, -7);
+    }
+    return normalized;
   }
   
   throw new Error('VITE_API_URL must be explicitly configured in production. Dynamic hostname resolution is prohibited for security and consistency.');
+}
+
+export function resolveWsUrl() {
+  const configuredWs = import.meta.env.VITE_WS_URL;
+  if (configuredWs) {
+    let normalized = configuredWs.trim().replace(/\/+$/, '');
+    return normalized.endsWith('/api/v1/realtime') ? normalized : `${normalized}/api/v1/realtime`;
+  }
+
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    return `ws://${window.location.hostname}:3001/api/v1/realtime`;
+  }
+
+  const base = resolveApiBaseUrl();
+  const wsProtocol = base.startsWith('https') ? 'wss' : 'ws';
+  const host = base.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  return `${wsProtocol}://${host}/api/v1/realtime`;
 }

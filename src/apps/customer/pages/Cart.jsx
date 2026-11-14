@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useCartStore, useSessionStore } from '../../../store/index'
 import { fetchPublicApi } from '../../../lib/apiClient'
-import { motion } from 'framer-motion'
 import { getQrSession, getCustomerSession } from '../utils/qrSession'
 import { useCartRecommendations } from '../hooks/useCartRecommendations'
 import { CustomerRecommendationService } from '../services/CustomerRecommendationService'
+import { CustomerRecommendationSection } from '../components/CustomerRecommendationSection'
 
 export default function Cart() {
   const navigate   = useNavigate()
@@ -17,10 +18,51 @@ export default function Cart() {
   const [isPlacing, setIsPlacing] = useState(false)
   const [note,      setNote]      = useState('')
   const [errorMsg,  setErrorMsg]  = useState(null)
-  const [paymentMethod, setPaymentMethod] = useState('upi')
-  const { recommendations } = useCartRecommendations(cartItems)
+  const [serverTotals, setServerTotals] = useState(null)
+  const { recommendations, isLoading: recsLoading, error: recsError, refetch: recsRetry } = useCartRecommendations(cartItems)
 
-  const subtotal   = cartItems.reduce((a, i) => a + ((i.unit_price || i.price || 0) * i.qty), 0)
+  const subtotal = cartItems.reduce((a, i) => a + ((i.unit_price || i.price || 0) * i.qty), 0)
+
+  useEffect(() => {
+    const qrContext = getQrSession()
+    if (qrContext?.tenantId) {
+      useCartStore.getState().reconcileSession({
+        tenantId: qrContext.tenantId,
+        branchId: qrContext.branchId,
+      })
+    }
+  }, [])
+
+  const cartDependency = JSON.stringify(
+    cartItems.map(i => [i.id, i.qty, i.modifiers, i.note])
+  )
+
+  useEffect(() => {
+    let isMounted = true
+    const fetchTotals = async () => {
+      if (cartItems.length === 0) {
+        setServerTotals(null)
+        return
+      }
+      try {
+        const qrContext = getQrSession()
+        if (!qrContext?.sessionToken) return
+        const res = await fetchPublicApi('/api/v1/cart', {
+          headers: { 'x-qr-session-token': qrContext.sessionToken }
+        })
+        if (res.ok) {
+          const body = await res.json()
+          if (isMounted && body.data?.totals) {
+            setServerTotals(body.data.totals)
+          }
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
+    fetchTotals()
+    return () => { isMounted = false }
+  }, [cartDependency])
 
   const resolveTableNum = () => {
     const store = useSessionStore.getState()
@@ -91,15 +133,40 @@ export default function Cart() {
 
       let cartRevision = serverCart?.version_num ?? 0
 
+      // If server cart had unsubmitted items, clear them first to avoid duplicate line accumulation
+      const serverItems = cartBody.data?.items || serverCart?.items || []
+      if (serverItems.length > 0) {
+        const clearEnvelope = buildEnvelope(`cart_clear_${cartId}`, 0, {}, { expected_cart_revision: cartRevision })
+        const clearRes = await fetchPublicApi('/api/v1/cart/items', {
+          method: 'DELETE',
+          headers: qrHeaders,
+          body: JSON.stringify(clearEnvelope),
+        })
+        if (clearRes.ok) {
+          const clearBody = await clearRes.json()
+          cartRevision = clearBody.mutation_ack?.server_cart_revision ?? (cartRevision + 1)
+        }
+      }
+
       for (let i = 0; i < cartItems.length; i++) {
         const ci = cartItems[i]
+        const formattedMods = (ci.modifiers || []).map(m => {
+          if (typeof m === 'object' && m.modifier_group_id && m.modifier_option_id) {
+            return {
+              modifier_group_id: m.modifier_group_id,
+              modifier_option_id: m.modifier_option_id,
+            }
+          }
+          return null
+        }).filter(Boolean)
+
         const envelope = buildEnvelope(
           `cart_add_${ci.id}_${i}`,
           i + 1,
           {
             menu_item_id: ci.id,
             quantity: ci.qty,
-            modifiers: ci.modifiers || [],
+            modifiers: formattedMods,
             item_notes: ci.note || '',
           },
           { expected_cart_revision: cartRevision }
@@ -114,7 +181,7 @@ export default function Cart() {
           throw new Error(addErr?.error?.message || `Failed to add item ${ci.name} to cart`)
         }
         const addBody = await addRes.json()
-        cartRevision = addBody.mutation_ack?.server_cart_revision ?? cartRevision + 1
+        cartRevision = addBody.mutation_ack?.server_cart_revision ?? (cartRevision + 1)
       }
 
       const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
@@ -126,7 +193,6 @@ export default function Cart() {
           tableId: tableId || serverCart?.table_id,
           orderNotes,
           customerName: guestSession.name || 'Guest',
-          payment_method: paymentMethod,
         },
         { expected_cart_revision: cartRevision }
       )
@@ -166,15 +232,19 @@ export default function Cart() {
         onClose()
         const orderData = res?.data?.order || res?.data || res
         const orderId = orderData?.id || res?.id
+        const orderSubtotal = orderData?.subtotal_minor ? Math.round(orderData.subtotal_minor / 100) : subtotal
+        const orderTax = orderData?.tax_minor ? Math.round(orderData.tax_minor / 100) : (serverTotals ? Math.round(serverTotals.total_tax_minor / 100) : 0)
+        const orderTotal = orderData?.total_minor ? Math.round(orderData.total_minor / 100) : (orderSubtotal + orderTax)
+
         navigate(orderId ? `/menu/track/${orderId}` : '/menu/orders', {
           state: orderId ? {
             orderId,
             orderNumber: orderData?.order_number,
             tableId: orderData?.table_id,
             tableName: resolvedTableNum,
-            subtotal,
-            tax: 0,
-            total: subtotal,
+            subtotal: orderSubtotal,
+            tax: orderTax,
+            total: orderTotal,
             items: cartItems,
           } : undefined
         })
@@ -305,7 +375,7 @@ export default function Cart() {
                       
                       {item.modifiers?.length > 0 && (
                         <div style={{ fontSize: 12, color: '#6C757D', marginTop: 6, paddingLeft: item.is_veg !== undefined ? 22 : 0 }}>
-                          <span style={{ fontWeight: 600 }}>Customize:</span> {item.modifiers.join(', ')}
+                          <span style={{ fontWeight: 600 }}>Customize:</span> {item.modifiers.map(m => typeof m === 'string' ? m : (m.name || m.modifier_option_name_snapshot || m.modifier_option_id)).join(', ')}
                         </div>
                       )}
                     </div>
@@ -315,7 +385,7 @@ export default function Cart() {
                          <img src={item.image_url || `https://placehold.co/84x84?text=${item.name[0]}`} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                        </div>
                        <div style={{ display: 'flex', alignItems: 'center', background: '#FFFFFF', borderRadius: 8, height: 32, padding: '0 4px', border: '1px solid #E5E7EB', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginTop: -16, position: 'relative', zIndex: 2 }}>
-                          <button onClick={() => updateQty(item.id, item.modifiers, item.qty - 1)} style={{ width: 28, height: 28, border: 'none', background: 'transparent', color: '#E31E24', fontWeight: 800, cursor: 'pointer', fontSize: 18 }}>−</button>
+                          <button onClick={() => updateQty(item.id, item.modifiers, item.qty - 1, item.note)} style={{ width: 28, height: 28, border: 'none', background: 'transparent', color: '#E31E24', fontWeight: 800, cursor: 'pointer', fontSize: 18 }}>−</button>
                           <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#E31E24' }}>{item.qty}</span>
                           <button onClick={() => addItem({ ...item, qty: 1, unit_price: item.unit_price || item.price || 0 })} style={{ width: 28, height: 28, border: 'none', background: 'transparent', color: '#E31E24', fontWeight: 800, cursor: 'pointer', fontSize: 18 }}>+</button>
                         </div>
@@ -334,33 +404,16 @@ export default function Cart() {
             </div>
 
             {/* Recommendations */}
-            {recommendations.length > 0 && (
-              <div style={{ background: '#FFFFFF', borderRadius: 16, padding: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
-                <h5 style={{ fontSize: 12, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 12px' }}>Complete your meal</h5>
-                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none', margin: '0 -16px', paddingLeft: 16, paddingRight: 16 }}>
-                  {recommendations.map(rec => (
-                    <div key={rec.id} style={{ width: 140, flexShrink: 0, background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ width: '100%', height: 90, background: '#F3F4F6', borderRadius: 8, marginBottom: 8, overflow: 'hidden', position: 'relative' }}>
-                        <img src={rec.image_url || `https://placehold.co/140x90?text=${rec.name[0]}`} alt={rec.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        <button 
-                           onClick={() => { CustomerRecommendationService.trackRecommendationClick(rec); addItem({ ...rec, qty: 1, unit_price: rec.effective_price || rec.price, modifiers: [], note: '' }); }}
-                           style={{ position: 'absolute', top: 6, right: 6, width: 28, height: 28, borderRadius: '50%', background: '#FFFFFF', border: '1px solid #E5E7EB', color: '#22C55E', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 18, fontWeight: 800 }}>add</span>
-                        </button>
-                      </div>
-                      
-                      {rec.is_veg !== undefined && (
-                        <div style={{ width: 10, height: 10, borderRadius: 2, border: rec.is_veg ? '2px solid #22C55E' : '2px solid #E31E24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
-                          <div style={{ width: 4, height: 4, borderRadius: '50%', backgroundColor: rec.is_veg ? '#22C55E' : '#E31E24' }} />
-                        </div>
-                      )}
-                      <p style={{ fontWeight: 600, fontSize: 12, color: '#1A1C1E', margin: '0 0 4px', lineHeight: 1.3, height: 32, overflow: 'hidden' }}>{rec.name}</p>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1A1C1E', marginTop: 'auto' }}>₹{rec.effective_price || rec.price}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <CustomerRecommendationSection
+              title="Recommended For Your Order"
+              subtitle="Popular pairings to complete your meal"
+              recommendations={recommendations}
+              isLoading={recsLoading}
+              error={recsError}
+              onRetry={recsRetry}
+              context="cart"
+              sourceItemIds={cartItems.map(i => i.id)}
+            />
 
             {/* Bill Details */}
             <div style={{ background: '#FFFFFF', borderRadius: 16, padding: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
@@ -376,14 +429,25 @@ export default function Cart() {
                 <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>Item Total</span>
                 <span style={{ color: '#1A1C1E', fontWeight: 600, fontSize: 13 }}>₹{subtotal}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>Taxes & Charges</span>
-                <span style={{ color: '#E31E24', fontWeight: 600, fontSize: 13 }}>Will be added</span>
-              </div>
+              {serverTotals && serverTotals.total_tax_minor > 0 ? (
+                serverTotals.tax_breakdown?.map((tax, taxIdx) => (
+                  <div key={taxIdx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>{tax.tax_profile_name}</span>
+                    <span style={{ color: '#1A1C1E', fontWeight: 600, fontSize: 13 }}>₹{(tax.tax_amount_minor / 100).toFixed(2)}</span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>Taxes & Charges</span>
+                  <span style={{ color: '#6C757D', fontWeight: 600, fontSize: 13 }}>Calculated at checkout</span>
+                </div>
+              )}
               <div style={{ height: 1, borderTop: '1px dashed #E5E7EB', margin: '0 -16px 16px' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 15 }}>Grand Total</span>
-                <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 16 }}>₹{subtotal}</span>
+                <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 16 }}>
+                  ₹{serverTotals ? (serverTotals.grand_total_minor / 100).toFixed(2) : subtotal}
+                </span>
               </div>
             </div>
 

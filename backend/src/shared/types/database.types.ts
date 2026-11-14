@@ -3336,6 +3336,8 @@ export type Database = {
           tax_group_id: string | null
           tenant_id: string | null
           thumbnail_url: string | null
+          recommendation_enabled: boolean
+          recommendation_tags: string[]
           updated_at: string | null
           updated_by: string | null
           version_num: number
@@ -3370,6 +3372,8 @@ export type Database = {
           tax_group_id?: string | null
           tenant_id?: string | null
           thumbnail_url?: string | null
+          recommendation_enabled?: boolean
+          recommendation_tags?: string[]
           updated_at?: string | null
           updated_by?: string | null
           version_num?: number
@@ -3404,6 +3408,8 @@ export type Database = {
           tax_group_id?: string | null
           tenant_id?: string | null
           thumbnail_url?: string | null
+          recommendation_enabled?: boolean
+          recommendation_tags?: string[]
           updated_at?: string | null
           updated_by?: string | null
           version_num?: number
@@ -7219,28 +7225,6 @@ export type Database = {
           new_mrr: number | null
         }
         Relationships: []
-      }
-      v_user_effective_roles: {
-        Row: {
-          email: string | null
-          granted_at: string | null
-          id: string | null
-          is_active: boolean | null
-          revoked_at: string | null
-          role: Database["public"]["Enums"]["rbac_role"] | null
-          tenant_id: string | null
-          tenant_name: string | null
-          user_id: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_roles_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Functions: {

@@ -213,6 +213,16 @@ export async function deleteCartItem(
 }
 
 export async function clearCart(cartId: string): Promise<void> {
+  const items = await listCartItems(cartId);
+  const itemIds = items.map((i) => i.id);
+  if (itemIds.length > 0) {
+    const { error: modError } = await supabaseAdmin
+      .from('cart_item_modifiers')
+      .delete()
+      .in('cart_item_id', itemIds);
+    if (modError) throw new AppError('Failed to clear cart item modifiers', 500, ErrorCode.INTERNAL_SERVER_ERROR, true, { error: modError });
+  }
+
   const { error } = await supabaseAdmin
     .from('cart_items')
     .delete()

@@ -451,15 +451,10 @@ export default function KitchenDisplay() {
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
-        table: 'order_items',
+        table: 'orders',
       }, async (payload) => {
-        const { data: item } = await supabase
-          .from('order_items')
-          .select('order_id')
-          .eq('id', payload.new.id)
-          .single()
-        if (item?.order_id) {
-          const full = await refetch(item.order_id)
+        if (payload.new?.id) {
+          const full = await refetch(payload.new.id)
           if (full) setOrders(prev => prev.map(o => o.id === full.id ? full : o))
         }
       })
@@ -515,17 +510,8 @@ export default function KitchenDisplay() {
       ),
     })))
 
-    const { error } = await supabase.from('order_items').update({ done: newDone, status: newStatus }).eq('id', item.id)
-    if (error) {
-      console.error('[KDS] Toggle item failed:', error)
-      // Revert on failure
-      setOrders(prev => prev.map(o => ({
-        ...o,
-        order_items: (o.order_items || []).map(i =>
-          i.id === item.id ? { ...i, done: item.done, status: item.status } : i
-        ),
-      })))
-    }
+    // Note: KDS transitions are managed via KDSBoard and backend mutations
+    console.warn('[KDS] Direct order_items update deprecated — use backend mutation gateway');
   }
 
   const handleRejectItem = async (item) => {
@@ -538,16 +524,8 @@ export default function KitchenDisplay() {
     })))
     showToast(`✕ Item "${item.name}" marked unavailable`)
 
-    const { error } = await supabase.from('order_items').update({ is_rejected: true, done: false }).eq('id', item.id)
-    if (error) {
-      console.error('[KDS] Reject item failed:', error)
-      setOrders(prev => prev.map(o => ({
-        ...o,
-        order_items: (o.order_items || []).map(i =>
-          i.id === item.id ? { ...i, is_rejected: item.is_rejected, done: item.done } : i
-        ),
-      })))
-    }
+    // Note: KDS transitions are managed via KDSBoard and backend mutations
+    console.warn('[KDS] Direct order_items reject deprecated — use backend mutation gateway');
   }
 
   // ── Filtering + sorting ───────────────────────────────────────────────────

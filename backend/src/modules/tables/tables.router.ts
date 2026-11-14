@@ -8,6 +8,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { requireMinRole } from '../../middleware/auth.middleware';
 import { ROLES } from '../../types/rbac.types';
+import { AppError } from '../../shared/errors/AppError';
 import * as tableService from './services/table.service';
 import {
   CreateFloorSchema,
@@ -22,6 +23,14 @@ import {
 } from './tables.validators';
 
 const router: Router = Router({ mergeParams: true });
+
+// Defensive check: ensure tenant context is present across all table management routes
+router.use((req: Request, _res: Response, next: NextFunction) => {
+  if (!req.context?.tenantId) {
+    return next(new AppError('Missing tenant context', 400));
+  }
+  next();
+});
 
 // ─── Floors ───────────────────────────────────────────────────
 
@@ -95,8 +104,9 @@ router.delete('/sections/:sectionId', requireMinRole(ROLES.MANAGER), async (req:
 // GET /api/v1/admin/tables?branch_id=&page=&limit=
 router.get('/', requireMinRole(ROLES.STAFF), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const tenantId = req.context?.tenantId;
+    if (!tenantId) return next(new AppError('Missing tenant context', 400));
     const query = TableListQuerySchema.parse(req.query);
-    const tenantId = req.context.tenantId!;
     const result = await tableService.listTables(tenantId, query);
     res.status(200).json({ success: true, ...result });
   } catch (err) { next(err); }

@@ -12,6 +12,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { fetchPublicApi } from '../../../lib/apiClient'
 import { useCartStore, usePublicMenuStore } from '../../../store/index'
 import { motion } from 'framer-motion'
+import { useItemRecommendations } from '../hooks/useItemRecommendations'
+import { CustomerRecommendationSection } from '../components/CustomerRecommendationSection'
 
 export default function ItemDetail() {
   const { id: itemId } = useParams()
@@ -20,6 +22,7 @@ export default function ItemDetail() {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState({})
   const [note,     setNote]     = useState('')
+  const { recommendations: recs, isLoading: recsLoading, error: recsError, refetch: recsRetry } = useItemRecommendations(itemId, 4)
 
   useEffect(() => {
     if (!itemId) return
@@ -91,17 +94,29 @@ export default function ItemDetail() {
     </div>
   )
 
-  const modifierGroups = item.modifierGroups || []
-  const extraCost = Object.values(selected).reduce((sum, o) => sum + (o.priceDelta || 0), 0)
+  const modifierGroups = item.modifierGroups || item.modifier_groups || []
+  const extraCost = Object.values(selected).reduce((sum, o) => sum + (o.priceDelta || o.price_delta || 0), 0)
   const finalPrice = item.price + extraCost
-  const allRequiredMet = modifierGroups.filter(g => g.required).every(g => selected[g.id])
-  const canAdd = modifierGroups.filter(g => g.required).length === 0 || allRequiredMet
+  const allRequiredMet = modifierGroups.filter(g => g.required || g.is_required).every(g => selected[g.id])
+  const canAdd = modifierGroups.filter(g => g.required || g.is_required).length === 0 || allRequiredMet
 
   const handleSelect = (groupId, option) => setSelected(prev => ({ ...prev, [groupId]: option }))
 
   const handleAddToCart = () => {
-    const modifierLabels = Object.values(selected).map(o => o.name)
-    useCartStore.getState().addItem({ ...item, price: finalPrice, modifiers: modifierLabels, note, qty: 1 })
+    const formattedModifiers = Object.entries(selected).map(([groupId, opt]) => ({
+      modifier_group_id: groupId,
+      modifier_option_id: opt.id,
+      name: opt.name,
+      priceDelta: opt.priceDelta || opt.price_delta || 0,
+    }))
+    useCartStore.getState().addItem({
+      ...item,
+      price: finalPrice,
+      unit_price: item.price,
+      modifiers: formattedModifiers,
+      note,
+      qty: 1,
+    })
     navigate(-1)
   }
 
@@ -155,16 +170,17 @@ export default function ItemDetail() {
           <div key={group.id} style={{ marginBottom: 32 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
               <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#E31E24', margin: 0 }}>{group.name}</h3>
-              {group.required && <span style={{ fontSize: 10, fontWeight: 800, color: '#E31E24', background: 'rgba(249,115,22,0.1)', padding: '2px 8px', borderRadius: 4 }}>REQUIRED</span>}
+              {(group.required || group.is_required) && <span style={{ fontSize: 10, fontWeight: 800, color: '#E31E24', background: 'rgba(249,115,22,0.1)', padding: '2px 8px', borderRadius: 4 }}>REQUIRED</span>}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {group.options.map(opt => {
                 const isSelected = selected[group.id]?.id === opt.id
+                const delta = opt.priceDelta || opt.price_delta || 0
                 return (
                   <button key={opt.id} onClick={() => handleSelect(group.id, opt)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 12, cursor: 'pointer', border: `1.5px solid ${isSelected ? '#E31E24' : '#F3F4F6'}`, backgroundColor: isSelected ? 'rgba(227,30,36,0.03)' : '#FFFFFF', transition: 'all 0.2s' }}>
                     <span style={{ fontSize: 15, fontWeight: isSelected ? 700 : 500, color: isSelected ? '#E31E24' : '#4B5563' }}>{opt.name}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {opt.priceDelta > 0 && <span style={{ fontSize: 13, color: '#6C757D' }}>+₹{opt.priceDelta}</span>}
+                      {delta > 0 && <span style={{ fontSize: 13, color: '#6C757D' }}>+₹{delta}</span>}
                       <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${isSelected ? '#E31E24' : '#D1D5DB'}`, background: isSelected ? '#E31E24' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {isSelected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF' }} />}
                       </div>
@@ -177,10 +193,22 @@ export default function ItemDetail() {
         ))}
 
         {/* Special requests */}
-        <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: 24 }}>
           <label style={{ fontSize: 13, fontWeight: 800, color: '#E31E24', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 12 }}>Special Requests</label>
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="e.g. Extra spicy, no onions..." style={{ width: '100%', background: '#F9FAFB', border: '1.5px solid #F3F4F6', borderRadius: 12, padding: 14, fontSize: 15, color: '#1A1C1E', resize: 'none', outline: 'none', boxSizing: 'border-box' }} />
         </div>
+
+        {/* Recommended with this dish */}
+        <CustomerRecommendationSection
+          title="Recommended With This"
+          subtitle="Frequently paired with this dish"
+          recommendations={recs}
+          isLoading={recsLoading}
+          error={recsError}
+          onRetry={recsRetry}
+          context="item_detail"
+          sourceItemIds={item?.id ? [item.id] : []}
+        />
       </div>
 
       {/* Sticky Add to Cart */}

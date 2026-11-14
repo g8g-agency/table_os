@@ -38,6 +38,7 @@ export class TableSessionsService {
     }
 
     const orderIds = orders.map(o => o.id);
+    const snapshotIds = orders.map(o => o.order_snapshot_id).filter(Boolean);
 
     // 3. Calculate and generate authoritative bill
     // The BillAggregationService should handle fetching non-cancelled items, prices, and taxes.
@@ -46,7 +47,8 @@ export class TableSessionsService {
       branchId,
       tableId,
       sessionId: activeSession.id, // we pass table session ID
-      orderIds
+      orderIds,
+      snapshotIds,
     });
 
     // 4. Update the bill with the table_session_id (if not already done by aggregation service)
@@ -62,37 +64,123 @@ export class TableSessionsService {
   }
 
   /**
-   * Computes the bill for a specific table session.
+   * Computes or retrieves the authoritative bill for a specific table session.
+   * Enforces strict tenant isolation, branch authorization, unambiguous lookup,
+   * closed vs active session behavior, and prevents duplicate bills.
    */
-  public static async getBill(tenantId: string, sessionId: string) {
-    // 1. Verify session exists
-    const session = await TableSessionsRepository.getSessionById(sessionId);
-    if (!session) {
-      throw new AppError('Table session not found.', 404, ErrorCode.NOT_FOUND);
+  public static async getBill(
+    tenantId: string,
+    sessionIdOrTableId: string,
+    options?: { branchId?: string }
+  ) {
+    if (!tenantId || tenantId.trim().length === 0) {
+      throw new AppError('Tenant ID is strictly required.', 400, ErrorCode.VALIDATION_ERROR);
+    }
+    if (!sessionIdOrTableId || sessionIdOrTableId.trim().length === 0) {
+      throw new AppError('Session or Table ID is required.', 400, ErrorCode.VALIDATION_ERROR);
     }
 
-    // 2. Find billable orders
+    // 1. Unambiguous Resolution:
+    // First attempt to resolve as explicit session ID scoped to tenant
+    let session = await TableSessionsRepository.getSessionById(sessionIdOrTableId, tenantId);
+    let resolvedBy: 'session_id' | 'table_id' = 'session_id';
+
+    // If not found by session ID, attempt to resolve as active table session for table ID scoped to tenant
+    if (!session) {
+      session = await TableSessionsRepository.getActiveSession(sessionIdOrTableId, tenantId);
+      resolvedBy = 'table_id';
+    }
+
+    if (!session) {
+      throw new AppError('Table session not found for this tenant.', 404, ErrorCode.NOT_FOUND);
+    }
+
+    // 2. Strict Tenant Isolation
+    if (session.tenant_id !== tenantId) {
+      throw new AppError('Forbidden: Table session belongs to another tenant.', 403, ErrorCode.FORBIDDEN);
+    }
+
+    // 3. Branch Authorization
+    if (options?.branchId && session.branch_id !== options.branchId) {
+      throw new AppError('Forbidden: Table session belongs to another branch.', 403, ErrorCode.FORBIDDEN);
+    }
+
+    // 4. Closed Session Behavior
+    // If session is closed, return the existing authoritative finalized bill rather than regenerating
+    if (session.status === 'closed') {
+      const { data: existingBill, error: billErr } = await supabaseAdmin
+        .from('bills')
+        .select(`
+          *,
+          bill_items (*)
+        `)
+        .eq('tenant_id', tenantId)
+        .or(`table_session_id.eq.${session.id},session_id.eq.${session.id}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (billErr) {
+        throw new AppError(`Failed to fetch finalized bill: ${billErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      }
+
+      if (existingBill) {
+        return {
+          ...existingBill,
+          session_status: session.status,
+          resolved_by: resolvedBy,
+        };
+      }
+    }
+
+    // 5. Existing Active Bill Check (Prevent duplicate billing on multiple previews)
+    const { data: activeBill } = await supabaseAdmin
+      .from('bills')
+      .select(`
+        *,
+        bill_items (*)
+      `)
+      .eq('tenant_id', tenantId)
+      .or(`table_session_id.eq.${session.id},session_id.eq.${session.id}`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // 6. Find billable orders for active session
     const orders = await getOrdersByTableSession(tenantId, session.id);
     if (!orders || orders.length === 0) {
+      if (activeBill) {
+        return {
+          ...activeBill,
+          session_status: session.status,
+          resolved_by: resolvedBy,
+        };
+      }
       throw new AppError('No billable orders found for this session.', 400, ErrorCode.VALIDATION_ERROR);
     }
 
     const orderIds = orders.map(o => o.id);
+    const snapshotIds = orders.map(o => o.order_snapshot_id).filter(Boolean);
 
-    // 3. Calculate authoritative bill
+    // 7. Calculate authoritative bill using authoritative pricing, taxes, modifiers
     const bill = await BillAggregationService.aggregateOrdersIntoBill({
       tenantId,
       branchId: session.branch_id,
       tableId: session.table_id,
       sessionId: session.id,
-      orderIds
+      orderIds,
+      snapshotIds,
     });
 
-    // 4. Update the bill with the table_session_id
+    // 8. Bind table_session_id to bill
     await supabaseAdmin.from('bills').update({
       table_session_id: session.id
     }).eq('id', bill.id).eq('tenant_id', tenantId);
 
-    return bill;
+    return {
+      ...bill,
+      session_status: session.status,
+      resolved_by: resolvedBy,
+    };
   }
 }

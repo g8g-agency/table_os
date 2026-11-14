@@ -11,6 +11,7 @@ import {
   UpdateCartItemSchema,
   RemoveCartItemSchema,
   UpdateCartNotesSchema,
+  ClearCartSchema,
 } from './cart.validators';
 import { logMutationAudit, updateMutationAuditStatus } from '../idempotency/mutation-audit.repository';
 
@@ -127,6 +128,29 @@ export async function updateNotes(req: Request, res: Response, next: NextFunctio
     const dto = UpdateCartNotesSchema.parse(req.body);
     const cartDetail = await cartService.updateCartNotes(session.tenant_id, session.id, dto, ctx.expected_cart_revision);
     
+    void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
+    formatMutationResponse(res, 200, cartDetail, ctx, cartDetail.cart.version_num);
+  } catch (err: any) {
+    void updateMutationAuditStatus(ctx.mutation_id, 'FAILED_FATAL', err.message);
+    next(err);
+  }
+}
+
+export async function clearAllItems(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const ctx = req.mutationContext!;
+  try {
+    const session = req.qrSession!;
+    void logMutationAudit({
+      ...ctx,
+      tenant_id: ctx.tenant_id || session.tenant_id,
+      branch_id: ctx.branch_id || session.branch_id,
+      mutation_type: 'cart.clear',
+      status: 'IN_FLIGHT',
+    });
+
+    const dto = ClearCartSchema.parse(req.body || {});
+    const cartDetail = await cartService.clearCart(session.tenant_id, session.id, ctx.expected_cart_revision ?? dto.version_num);
+
     void updateMutationAuditStatus(ctx.mutation_id, 'ACKNOWLEDGED');
     formatMutationResponse(res, 200, cartDetail, ctx, cartDetail.cart.version_num);
   } catch (err: any) {

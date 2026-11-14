@@ -63,22 +63,27 @@ export async function rebuildTableProjection(
   try {
     const { data: orders, error: ordersErr } = await supabase
       .from('orders')
-      .select('id, status, customer_payment_intent')
+      .select('id, status, payment_status, payment_method')
       .eq('tenant_id', tenantId)
       .eq('table_id', tableId)
-      .in('status', ['open', 'pending', 'accepted', 'preparing', 'ready', 'delivered']); // Active orders
+      .not('status', 'in', '("completed","cancelled")');
       
     if (ordersErr) {
       console.error('[TableProjection] Orders query error:', ordersErr);
     }
 
     if (!ordersErr && orders) {
-      activeOrderCount = orders.length;
-      // Payment is requested if any active order has a customer_payment_intent
-      const paymentOrder = orders.find(o => o.customer_payment_intent != null);
+      // Terminal orders according to order fulfillment contract (delivered, completed, cancelled) are not active
+      const activeKitchenOrders = orders.filter(o =>
+        ['open', 'pending', 'accepted', 'preparing', 'ready'].includes(o.status)
+      );
+      activeOrderCount = activeKitchenOrders.length;
+
+      // Payment is requested if any order has pending payment with specified method
+      const paymentOrder = orders.find(o => (o as any).customer_payment_intent != null || (o.payment_status === 'pending' && o.payment_method != null));
       if (paymentOrder) {
         paymentPendingCount = 1;
-        customerPaymentIntent = paymentOrder.customer_payment_intent as 'cash' | 'upi';
+        customerPaymentIntent = ((paymentOrder as any).customer_payment_intent || paymentOrder.payment_method) as 'cash' | 'upi';
       }
     }
   } catch (err) {

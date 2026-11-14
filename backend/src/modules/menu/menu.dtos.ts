@@ -93,6 +93,8 @@ export interface CreateMenuItemDto {
   thumbnail_url?:        string | null;
   modifier_group_ids?:   string[] | null;  // Link existing groups at creation
   status?:               MenuItemStatus;
+  recommendation_enabled?: boolean;
+  recommendation_tags?:  string[];
 }
 
 export interface UpdateMenuItemDto {
@@ -114,6 +116,8 @@ export interface UpdateMenuItemDto {
   status?:               MenuItemStatus;
   image_url?:            string | null;
   thumbnail_url?:        string | null;
+  recommendation_enabled?: boolean;
+  recommendation_tags?:  string[];
   version_num:           number; // Required for optimistic locking
 }
 
