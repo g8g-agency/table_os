@@ -47,6 +47,7 @@ import { errorMiddleware } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
 import { devBroadcastRouter } from './modules/transport/dev-broadcast.router';
 import { tableSessionsRouter } from './modules/tables/table-sessions.router';
+import { supabaseAdmin } from './config/supabase';
 
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
@@ -72,21 +73,6 @@ export function createApp(): express.Application {
   });
   app.use(globalLimiter);
 
-  // ============================================================
-  // TEMPORARY DIAGNOSTIC LOGGING FOR MENU ROUTES
-  // ============================================================
-  app.use((req, _res, next) => {
-    if (
-      req.path.includes('/categories') || 
-      req.path.includes('/items') || 
-      req.path.includes('/menu-availability')
-    ) {
-      console.log(`\n\n[DIAGNOSTIC] INCOMING REQUEST -> ${req.method} ${req.originalUrl}`);
-      console.log(`[DIAGNOSTIC] HEADERS:`, req.headers);
-      console.log(`[DIAGNOSTIC] ORIGIN:`, req.headers.origin);
-    }
-    next();
-  });
 
   // ─── CORS ──────────────────────────────────────────────────
   app.use(
@@ -148,21 +134,54 @@ export function createApp(): express.Application {
   // the direct connection address when no X-Forwarded-For header is present.
   app.set('trust proxy', 1);
 
-  // ─── Health check ──────────────────────────────────────────
+  // ─── Root & Health checks ──────────────────────────────────
+  app.get('/', (_req, res) => {
+    res.status(200).json({
+      service: 'orderlli-backend',
+      status: 'ok',
+      version: '0.1.0',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.get('/health', (_req, res) => {
     res.status(200).json({
-      status: 'ok',
       service: 'orderlli-backend',
+      status: 'ok',
       env: env.NODE_ENV,
       timestamp: new Date().toISOString(),
     });
   });
 
-  // ─── Ready check ───────────────────────────────────────────
-  app.get('/ready', (_req, res) => {
-    // Check DB or other critical services if needed here
-    res.status(200).json({ status: 'ready' });
-  });
+  const readyHandler = async (_req: express.Request, res: express.Response) => {
+    try {
+      const { error } = await supabaseAdmin.from('tenants').select('id').limit(1);
+      if (error) {
+        return res.status(503).json({
+          service: 'orderlli-backend',
+          status: 'degraded',
+          database: 'disconnected',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return res.status(200).json({
+        service: 'orderlli-backend',
+        status: 'ready',
+        database: 'connected',
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      return res.status(503).json({
+        service: 'orderlli-backend',
+        status: 'degraded',
+        database: 'disconnected',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  };
+
+  app.get('/health/ready', readyHandler);
+  app.get('/ready', readyHandler);
 
   // ─── Version check ─────────────────────────────────────────
   app.get('/version', (_req, res) => {
