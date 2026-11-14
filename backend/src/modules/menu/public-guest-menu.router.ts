@@ -14,7 +14,7 @@ import {
   getEffectiveMenuForBranch,
 } from './services/menu.service';
 
-const router = Router();
+const router: Router = Router();
 
 const GuestMenuQuerySchema = z.object({
   tenantId: z.string().uuid(),

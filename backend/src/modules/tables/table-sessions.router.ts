@@ -1,5 +1,6 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import { authenticate } from '../../../middleware/auth.middleware';
+import { Router } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import { authenticate } from '../../middleware/auth.middleware';
 import { TableSessionsService } from './services/table-sessions.service';
 
 const router: Router = Router({ mergeParams: true });
@@ -13,8 +14,18 @@ router.use(authenticate);
  */
 router.get('/:sessionId/bill', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const tenantId = req.context.tenantId!;
-    const sessionId = req.params.sessionId;
+    const tenantId = req.context?.tenant_id || req.context?.tenantId;
+    if (!tenantId) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Tenant context is required' } });
+      return;
+    }
+
+    const rawSessionId = req.params.sessionId;
+    const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+      res.status(400).json({ success: false, error: { code: 'INVALID_PARAMETER', message: 'sessionId is required and cannot be empty' } });
+      return;
+    }
 
     const bill = await TableSessionsService.getBill(tenantId, sessionId);
 

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getDailySummary, getAnalysis } from './analytics.controller';
 import { authenticate } from '../../middleware/auth.middleware';
 
-export const analyticsRouter = Router();
+export const analyticsRouter: Router = Router();
 
 analyticsRouter.use(authenticate);
 

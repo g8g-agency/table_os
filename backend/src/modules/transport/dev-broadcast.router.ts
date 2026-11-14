@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { WebSocketManager } from './websocket.manager';
 import { logger } from '../../shared/utils/logger';
 
-export const devBroadcastRouter = Router();
+export const devBroadcastRouter: Router = Router();
 
 /**
  * POST /api/v1/dev/broadcast
