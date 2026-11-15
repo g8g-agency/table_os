@@ -111,6 +111,23 @@ export class OutboxProcessor {
         });
 
         await RealtimePublisherService.publishEvent(canonicalEvent);
+
+        try {
+          const { WebSocketManager } = await import('../transport/websocket.manager');
+          WebSocketManager.getInstance().broadcastToBranch(
+            call.branch_id,
+            'SYSTEM',
+            'OPERATIONAL_STREAM',
+            'waiter_call',
+            {
+              ...call,
+              table_number: event.payload?.table_number,
+              event_type: realtimeType,
+            }
+          );
+        } catch (wsErr: any) {
+          logger.warn({ err: wsErr?.message }, '[OutboxProcessor] Non-fatal WS broadcast warning for WaiterCall');
+        }
       } else {
         throw new Error(`Unsupported outbox aggregate type: '${event.aggregate_type}'`);
       }

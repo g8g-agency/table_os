@@ -162,14 +162,20 @@ const KDSBoard = () => {
 
     // Subscribe to OPERATIONAL_STREAM (new orders, order updates) from the WebSocket
     const unsubOps = useTransportStore.getState().subscribe('OPERATIONAL_STREAM', (envelope) => {
-      const eventType = envelope?.event_type;
-      console.log('\n[KDSBoard] OPERATIONAL_STREAM EVENT:', eventType, envelope);
+      const rawType = envelope?.event_type || '';
+      const eventType = rawType.toLowerCase();
+      console.log('\n[KDSBoard] OPERATIONAL_STREAM EVENT:', rawType, envelope);
       if (
         eventType === 'order_update' ||
         eventType === 'order_assigned' ||
         eventType === 'order.created' ||
+        eventType === 'order_created' ||
+        eventType === 'order.pending' ||
+        eventType === 'order_accepted' ||
+        eventType === 'order.accepted' ||
         eventType === 'order.updated' ||
-        eventType === 'order.ready'
+        eventType === 'order.ready' ||
+        eventType === 'order_ready'
       ) {
         triggerRebuild();
       }

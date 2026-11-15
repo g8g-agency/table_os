@@ -374,31 +374,31 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         {(() => {
           const orderNotes = (order.notes || order.order_notes || order.orderNotes || '').trim();
           if (!orderNotes) return null;
-          const isAllergy = /allergy|allergic|gluten|peanut|dairy|nut|vegan|celiac/i.test(orderNotes);
+          const isAllergy = /allergy|allergic|peanut|nut|gluten|celiac|dairy|vegan|vegetarian|egg|seafood|shellfish|sesame|soy/i.test(orderNotes);
           return (
             <div style={{
               background: isAllergy ? '#FEF2F2' : '#FFFBEB',
               border: `1.5px solid ${isAllergy ? '#EF4444' : '#FDE68A'}`,
-              borderLeft: `4px solid ${isAllergy ? '#DC2626' : '#D97706'}`,
+              borderLeft: `5px solid ${isAllergy ? '#DC2626' : '#D97706'}`,
               borderRadius: '8px',
               padding: '10px 12px',
-              marginBottom: '4px',
+              marginBottom: '6px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                <span style={{ fontSize: '13px' }}>{isAllergy ? '⚠️' : '📝'}</span>
+                <span style={{ fontSize: '14px' }}>{isAllergy ? '⚠️' : '📝'}</span>
                 <span style={{
                   fontSize: '11px',
-                  fontWeight: 800,
+                  fontWeight: 900,
                   color: isAllergy ? '#B91C1C' : '#92400E',
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em',
                 }}>
-                  {isAllergy ? 'Dietary / Allergy Notice' : 'Special Instructions'}
+                  {isAllergy ? 'ALLERGY / DIETARY NOTICE' : 'Kitchen Instructions'}
                 </span>
               </div>
               <p style={{
                 fontSize: '12px',
-                fontWeight: 600,
+                fontWeight: 700,
                 color: isAllergy ? '#991B1B' : '#78350F',
                 margin: 0,
                 lineHeight: 1.4,

@@ -162,6 +162,28 @@ export class TableSessionsService {
     const orderIds = orders.map(o => o.id);
     const snapshotIds = orders.map(o => o.order_snapshot_id).filter(Boolean);
 
+    // If active unpaid bill already covers these exact orders, return it idempotently
+    if (activeBill && activeBill.status === 'UNPAID') {
+      const { data: mappedOrders } = await supabaseAdmin
+        .from('bill_orders')
+        .select('order_id')
+        .eq('bill_id', activeBill.id);
+      
+      const mappedOrderIds = (mappedOrders || []).map((m: any) => m.order_id).sort();
+      const currentOrderIds = [...orderIds].sort();
+
+      const isSameOrders = mappedOrderIds.length === currentOrderIds.length &&
+        mappedOrderIds.every((id: string, idx: number) => id === currentOrderIds[idx]);
+
+      if (isSameOrders) {
+        return {
+          ...activeBill,
+          session_status: session.status,
+          resolved_by: resolvedBy,
+        };
+      }
+    }
+
     // 7. Calculate authoritative bill using authoritative pricing, taxes, modifiers
     const bill = await BillAggregationService.aggregateOrdersIntoBill({
       tenantId,

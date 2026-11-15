@@ -853,17 +853,22 @@ export async function getPendingOrdersForStaff(
   branchId: string,
   staffId: string
 ): Promise<ordersRepo.Order[]> {
+  // Fetch pending orders in this branch.
+  // Include orders where the table is unassigned (broadcast to all branch staff) OR assigned specifically to this staff member.
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*, tables!inner(assigned_waiter_id)')
+    .select('*, tables(table_number, assigned_staff_id)')
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .eq('status', 'pending')
-    .eq('tables.assigned_staff_id', staffId)
     .order('created_at', { ascending: true });
 
-  if (error) return [];
-  return (data ?? []) as ordersRepo.Order[];
+  if (error || !data) return [];
+
+  return (data as any[]).filter((o: any) => {
+    const assigned = o.tables?.assigned_staff_id;
+    return !assigned || assigned === staffId;
+  }) as ordersRepo.Order[];
 }
 // ── Assign Waiter to Order/Table (Staff acceptance mutation) ─────────────
 //
