@@ -12,6 +12,7 @@ import {
   RemoveCartItemSchema,
   UpdateCartNotesSchema,
   ClearCartSchema,
+  CartQuoteSchema,
 } from './cart.validators';
 import { logMutationAudit, updateMutationAuditStatus } from '../idempotency/mutation-audit.repository';
 
@@ -155,6 +156,21 @@ export async function clearAllItems(req: Request, res: Response, next: NextFunct
     formatMutationResponse(res, 200, cartDetail, ctx, cartDetail.cart.version_num);
   } catch (err: any) {
     void updateMutationAuditStatus(ctx.mutation_id, 'FAILED_FATAL', err.message);
+    next(err);
+  }
+}
+
+export async function getCartQuote(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const session = req.qrSession!;
+    const dto = CartQuoteSchema.parse(req.body);
+    const totals = await cartService.calculateCartQuote(
+      session.tenant_id,
+      session.branch_id,
+      dto.items
+    );
+    res.status(200).json({ success: true, data: { totals } });
+  } catch (err) {
     next(err);
   }
 }

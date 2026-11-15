@@ -371,6 +371,43 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         flex: 1, 
         overflowY: 'auto' 
       }}>
+        {(() => {
+          const orderNotes = (order.notes || order.order_notes || order.orderNotes || '').trim();
+          if (!orderNotes) return null;
+          const isAllergy = /allergy|allergic|gluten|peanut|dairy|nut|vegan|celiac/i.test(orderNotes);
+          return (
+            <div style={{
+              background: isAllergy ? '#FEF2F2' : '#FFFBEB',
+              border: `1.5px solid ${isAllergy ? '#EF4444' : '#FDE68A'}`,
+              borderLeft: `4px solid ${isAllergy ? '#DC2626' : '#D97706'}`,
+              borderRadius: '8px',
+              padding: '10px 12px',
+              marginBottom: '4px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                <span style={{ fontSize: '13px' }}>{isAllergy ? '⚠️' : '📝'}</span>
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: isAllergy ? '#B91C1C' : '#92400E',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}>
+                  {isAllergy ? 'Dietary / Allergy Notice' : 'Special Instructions'}
+                </span>
+              </div>
+              <p style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                color: isAllergy ? '#991B1B' : '#78350F',
+                margin: 0,
+                lineHeight: 1.4,
+              }}>
+                {orderNotes}
+              </p>
+            </div>
+          );
+        })()}
         {items.length === 0 && (
           <p style={{ color: '#9CA3AF', fontSize: '13px', fontStyle: 'italic', textAlign: 'center', marginTop: '24px' }}>
             No items in order

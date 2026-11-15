@@ -155,6 +155,22 @@ function OrderCard({ order, waiterName, onAccept, onMarkReady, onReject, onToggl
 
       {/* Items list */}
       <div style={{ padding: '12px 14px', flex: 1 }}>
+        {(order.notes || order.order_notes) && (
+          <div style={{
+            background: '#21262D',
+            borderLeft: '3px solid #E3B341',
+            borderRadius: 6,
+            padding: '8px 10px',
+            marginBottom: 10,
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#E3B341', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Cooking Requests
+            </span>
+            <p style={{ fontSize: 12, color: '#C9D1D9', margin: '2px 0 0', fontWeight: 500 }}>
+              {order.notes || order.order_notes}
+            </p>
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {itemsArray.map(item => (
             <div key={item.id} style={{

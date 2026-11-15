@@ -21,7 +21,14 @@ export default function Cart() {
   const [serverTotals, setServerTotals] = useState(null)
   const { recommendations, isLoading: recsLoading, error: recsError, refetch: recsRetry } = useCartRecommendations(cartItems)
 
-  const subtotal = cartItems.reduce((a, i) => a + ((i.unit_price || i.price || 0) * i.qty), 0)
+  const getItemUnitPrice = (item) => {
+    if (typeof item.price === 'number' && item.price > 0) return item.price;
+    const base = Number(item.unit_price || 0);
+    const mods = (item.modifiers || []).reduce((sum, m) => sum + Number(m.priceDelta || m.price_delta || 0), 0);
+    return base + mods;
+  };
+
+  const subtotal = cartItems.reduce((a, i) => a + (getItemUnitPrice(i) * i.qty), 0)
 
   useEffect(() => {
     const qrContext = getQrSession()
@@ -47,8 +54,28 @@ export default function Cart() {
       try {
         const qrContext = getQrSession()
         if (!qrContext?.sessionToken) return
-        const res = await fetchPublicApi('/api/v1/cart', {
-          headers: { 'x-qr-session-token': qrContext.sessionToken }
+        const quotePayload = {
+          items: cartItems.map(ci => ({
+            menu_item_id: ci.id,
+            quantity: ci.qty,
+            modifiers: (ci.modifiers || []).map(m => {
+              if (typeof m === 'object' && m.modifier_group_id && m.modifier_option_id) {
+                return {
+                  modifier_group_id: m.modifier_group_id,
+                  modifier_option_id: m.modifier_option_id,
+                }
+              }
+              return null
+            }).filter(Boolean),
+          })),
+        }
+        const res = await fetchPublicApi('/api/v1/public/cart/quote', {
+          method: 'POST',
+          headers: {
+            'x-qr-session-token': qrContext.sessionToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(quotePayload),
         })
         if (res.ok) {
           const body = await res.json()
@@ -88,7 +115,7 @@ export default function Cart() {
 
     try {
       const qrContext = getQrSession()
-      const { tableId, sessionToken, tenantId } = qrContext
+      const { sessionToken, tenantId } = qrContext
       const resolvedTableNum = resolveTableNum()
       const guestSession = getCustomerSession(tenantId)
 
@@ -99,58 +126,11 @@ export default function Cart() {
         return
       }
 
-      const qrHeaders = { 'x-qr-session-token': qrToken }
-
-      function buildEnvelope(mutationId, sequence, payload, extra = {}) {
-        return {
-          mutation_id: mutationId,
-          mutation_sequence: sequence,
-          runtime_version: 1,
-          client_timestamp: new Date().toISOString(),
-          idempotency_key: crypto.randomUUID().replace(/-/g, '_'),
-          payload,
-          ...extra,
-        }
-      }
-
-      const cartRes = await fetchPublicApi('/api/v1/cart', { headers: qrHeaders })
-      if (!cartRes.ok) {
-        const cartErr = await cartRes.json().catch(() => ({}))
-        if (cartRes.status === 401 || cartErr?.error?.code === 'UNAUTHORIZED') {
-          sessionStorage.removeItem('qr_session_token')
-          sessionStorage.removeItem('qr_session')
-          localStorage.removeItem('orderlyy_qr_context')
-          setErrorMsg('Your session has expired. Please scan the QR code on your table again.')
-          setIsPlacing(false)
-          return
-        }
-        throw new Error(cartErr?.error?.message || 'Failed to load cart')
-      }
-      const cartBody = await cartRes.json()
-      const serverCart = cartBody.data?.cart || cartBody.data
-      const cartId = serverCart?.id
-      if (!cartId) throw new Error('Could not resolve cart ID from server')
-
-      let cartRevision = serverCart?.version_num ?? 0
-
-      // If server cart had unsubmitted items, clear them first to avoid duplicate line accumulation
-      const serverItems = cartBody.data?.items || serverCart?.items || []
-      if (serverItems.length > 0) {
-        const clearEnvelope = buildEnvelope(`cart_clear_${cartId}`, 0, {}, { expected_cart_revision: cartRevision })
-        const clearRes = await fetchPublicApi('/api/v1/cart/items', {
-          method: 'DELETE',
-          headers: qrHeaders,
-          body: JSON.stringify(clearEnvelope),
-        })
-        if (clearRes.ok) {
-          const clearBody = await clearRes.json()
-          cartRevision = clearBody.mutation_ack?.server_cart_revision ?? (cartRevision + 1)
-        }
-      }
-
-      for (let i = 0; i < cartItems.length; i++) {
-        const ci = cartItems[i]
-        const formattedMods = (ci.modifiers || []).map(m => {
+      const formattedItems = cartItems.map(ci => ({
+        menu_item_id: ci.id,
+        quantity: ci.qty,
+        item_notes: ci.note || undefined,
+        modifiers: (ci.modifiers || []).map(m => {
           if (typeof m === 'object' && m.modifier_group_id && m.modifier_option_id) {
             return {
               modifier_group_id: m.modifier_group_id,
@@ -158,49 +138,22 @@ export default function Cart() {
             }
           }
           return null
-        }).filter(Boolean)
+        }).filter(Boolean),
+      }))
 
-        const envelope = buildEnvelope(
-          `cart_add_${ci.id}_${i}`,
-          i + 1,
-          {
-            menu_item_id: ci.id,
-            quantity: ci.qty,
-            modifiers: formattedMods,
-            item_notes: ci.note || '',
-          },
-          { expected_cart_revision: cartRevision }
-        )
-        const addRes = await fetchPublicApi('/api/v1/cart/items', {
-          method: 'POST',
-          headers: qrHeaders,
-          body: JSON.stringify(envelope),
-        })
-        if (!addRes.ok) {
-          const addErr = await addRes.json().catch(() => ({}))
-          throw new Error(addErr?.error?.message || `Failed to add item ${ci.name} to cart`)
-        }
-        const addBody = await addRes.json()
-        cartRevision = addBody.mutation_ack?.server_cart_revision ?? (cartRevision + 1)
+      const payload = {
+        items: formattedItems,
+        order_notes: note?.trim() || undefined,
+        customer_id: guestSession?.customerId || undefined,
       }
 
-      const orderNotes = note || `Order by ${guestSession.name || 'Guest'} · Party of ${guestSession.guestCount || 1}`
-      const checkoutEnvelope = buildEnvelope(
-        `checkout_${cartId}`,
-        cartItems.length + 1,
-        {
-          cartId,
-          tableId: tableId || serverCart?.table_id,
-          orderNotes,
-          customerName: guestSession.name || 'Guest',
-        },
-        { expected_cart_revision: cartRevision }
-      )
-
-      const checkoutRes = await fetchPublicApi('/api/v1/orders/checkout', {
+      const checkoutRes = await fetchPublicApi('/api/v1/public/orders', {
         method: 'POST',
-        headers: qrHeaders,
-        body: JSON.stringify(checkoutEnvelope),
+        headers: {
+          'x-qr-session-token': qrToken,
+          'idempotency-key': crypto.randomUUID(),
+        },
+        body: JSON.stringify(payload),
       })
 
       const res = await checkoutRes.json()
@@ -236,7 +189,7 @@ export default function Cart() {
         const orderTax = orderData?.tax_minor ? Math.round(orderData.tax_minor / 100) : (serverTotals ? Math.round(serverTotals.total_tax_minor / 100) : 0)
         const orderTotal = orderData?.total_minor ? Math.round(orderData.total_minor / 100) : (orderSubtotal + orderTax)
 
-        navigate(orderId ? `/menu/track/${orderId}` : '/menu/orders', {
+        navigate(orderId ? `/menu/confirmed/${orderId}` : '/menu/orders', {
           state: orderId ? {
             orderId,
             orderNumber: orderData?.order_number,
@@ -427,7 +380,7 @@ export default function Cart() {
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                 <span style={{ color: '#4B5563', fontSize: 13, fontWeight: 500 }}>Item Total</span>
-                <span style={{ color: '#1A1C1E', fontWeight: 600, fontSize: 13 }}>₹{subtotal}</span>
+                <span style={{ color: '#1A1C1E', fontWeight: 600, fontSize: 13 }}>₹{subtotal.toFixed(2)}</span>
               </div>
               {serverTotals && serverTotals.total_tax_minor > 0 ? (
                 serverTotals.tax_breakdown?.map((tax, taxIdx) => (
@@ -446,7 +399,7 @@ export default function Cart() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 15 }}>Grand Total</span>
                 <span style={{ color: '#1A1C1E', fontWeight: 800, fontSize: 16 }}>
-                  ₹{serverTotals ? (serverTotals.grand_total_minor / 100).toFixed(2) : subtotal}
+                  ₹{serverTotals && serverTotals.grand_total_minor > 0 ? (serverTotals.grand_total_minor / 100).toFixed(2) : subtotal.toFixed(2)}
                 </span>
               </div>
             </div>

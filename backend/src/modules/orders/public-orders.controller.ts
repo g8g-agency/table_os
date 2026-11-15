@@ -53,14 +53,30 @@ export async function getPublicOrderStatus(req: Request, res: Response, next: Ne
       );
     }
 
+    const anyOrder = order as any;
     res.status(200).json({
       success: true,
       data: {
         id: order.id,
         order_number: order.order_number,
         status: order.status,
+        table_id: order.table_id,
+        table_num: anyOrder.tables?.table_number || anyOrder.tables?.display_name || undefined,
         created_at: order.created_at,
         updated_at: order.updated_at,
+        order_notes: anyOrder.order_notes || null,
+        customer_payment_intent: anyOrder.customer_payment_intent || null,
+        subtotal_minor: anyOrder.subtotal_minor || 0,
+        tax_minor: anyOrder.tax_minor || 0,
+        total_minor: anyOrder.total_minor || 0,
+        items: (anyOrder.items || []).map((it: any) => ({
+          id: it.id,
+          name: it.item_name_snapshot || it.name,
+          qty: it.quantity || it.qty || 1,
+          unit_price: Math.round(Number(it.unit_price_minor || 0) / 100),
+          price: Math.round(Number(it.unit_price_minor || 0) / 100),
+          line_total: Math.round(Number(it.line_total_minor || 0) / 100),
+        })),
       },
     });
   } catch (err) {

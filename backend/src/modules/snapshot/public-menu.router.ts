@@ -10,6 +10,7 @@ import { Router } from 'express';
 import { getPublicMenuSnapshot } from './public-menu.controller';
 import { checkoutPublicOrder, getPublicOrderStatus, requestPayment } from '../orders/public-orders.controller';
 import { createCall } from '../waiter-call/waiter-call.controller';
+import { getCartQuote } from '../cart/cart.controller';
 import { requireQrSession } from '../tables/qr/qr.middleware';
 import { requestIdempotency } from '../../middleware/idempotency.middleware';
 import { publicOrderLimiter } from '../../middleware/public-rate-limit.middleware';
@@ -28,6 +29,9 @@ const initPublicContext = (req: any, _res: any, next: any) => {
 
 // GET /public/menu/snapshot — CDN-cached public menu snapshot (no QR session required)
 publicMenuRouter.get('/menu/snapshot', getPublicMenuSnapshot);
+
+// POST /public/cart/quote — Calculate dynamic cart quote with live prices & taxes (QR session required)
+publicMenuRouter.post('/cart/quote', requireQrSession, getCartQuote);
 
 // POST /public/orders — Idempotent public customer checkout (QR session required)
 publicMenuRouter.post(
