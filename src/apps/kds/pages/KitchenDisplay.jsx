@@ -155,24 +155,36 @@ function OrderCard({ order, waiterName, onAccept, onMarkReady, onReject, onToggl
 
       {/* Items list */}
       <div style={{ padding: '12px 14px', flex: 1 }}>
-        {(order.notes || order.order_notes) && (
-          <div style={{
-            background: '#21262D',
-            borderLeft: '3px solid #E3B341',
-            borderRadius: 6,
-            padding: '8px 10px',
-            marginBottom: 10,
-          }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: '#E3B341', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Cooking Requests
-            </span>
-            <p style={{ fontSize: 12, color: '#C9D1D9', margin: '2px 0 0', fontWeight: 500 }}>
-              {order.notes || order.order_notes}
-            </p>
-          </div>
-        )}
+        {(() => {
+          const orderNotes = (order.notes || order.order_notes || order.orderNotes || '').trim();
+          if (!orderNotes) return null;
+          const isAllergy = /allergy|allergic|peanut|nut|gluten|celiac|dairy|vegan|vegetarian|egg|seafood|shellfish|sesame|soy/i.test(orderNotes);
+          return (
+            <div style={{
+              background: isAllergy ? '#3B1214' : '#21262D',
+              border: `1.5px solid ${isAllergy ? '#F85149' : '#30363D'}`,
+              borderLeft: `4px solid ${isAllergy ? '#F85149' : '#E3B341'}`,
+              borderRadius: 6,
+              padding: '8px 10px',
+              marginBottom: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <span style={{ fontSize: 13 }}>{isAllergy ? '⚠️' : '📝'}</span>
+                <span style={{ fontSize: 10, fontWeight: 800, color: isAllergy ? '#FF7B72' : '#E3B341', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {isAllergy ? 'ALLERGY / DIETARY NOTICE' : 'Cooking Requests'}
+                </span>
+              </div>
+              <p style={{ fontSize: 12, color: isAllergy ? '#FFA198' : '#C9D1D9', margin: '2px 0 0', fontWeight: 600, lineHeight: 1.4 }}>
+                {orderNotes}
+              </p>
+            </div>
+          );
+        })()}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {itemsArray.map(item => (
+          {itemsArray.map(item => {
+            const itemNote = (item.note || item.notes || item.item_notes || item.special_instructions || '').trim();
+            const isItemAllergy = /allergy|allergic|peanut|nut|gluten|celiac|dairy|vegan|vegetarian|egg|seafood|shellfish|sesame|soy/i.test(itemNote);
+            return (
             <div key={item.id} style={{
               display: 'flex',
               alignItems: 'center',
@@ -209,10 +221,30 @@ function OrderCard({ order, waiterName, onAccept, onMarkReady, onReject, onToggl
                 }}>
                   {(item.qty ?? item.quantity ?? 1)}× {item.name || item.menu_items?.name || '—'}
                 </span>
-                {(item.note || item.notes) && (
-                  <p style={{ fontSize: 11, color: '#E3B341', margin: '2px 0 0', fontStyle: 'italic' }}>
-                    Note: {item.note || item.notes}
-                  </p>
+                {itemNote && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    marginTop: 3,
+                    background: isItemAllergy ? '#3B1214' : 'transparent',
+                    border: isItemAllergy ? '1px solid #F85149' : 'none',
+                    borderRadius: 4,
+                    padding: isItemAllergy ? '2px 6px' : 0,
+                    width: 'fit-content',
+                  }}>
+                    {isItemAllergy && <span style={{ fontSize: 11 }}>⚠️</span>}
+                    <p style={{
+                      fontSize: 11,
+                      color: isItemAllergy ? '#FF7B72' : '#E3B341',
+                      margin: 0,
+                      fontWeight: isItemAllergy ? 700 : 500,
+                      fontStyle: isItemAllergy ? 'normal' : 'italic',
+                      textTransform: isItemAllergy ? 'uppercase' : 'none',
+                    }}>
+                      {isItemAllergy ? `ALLERGY: ${itemNote}` : `Note: ${itemNote}`}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -236,7 +268,8 @@ function OrderCard({ order, waiterName, onAccept, onMarkReady, onReject, onToggl
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

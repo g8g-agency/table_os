@@ -96,7 +96,22 @@ export class PaymentReconciliationService {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+            const { data: existing } = await supabaseAdmin
+              .from('payment_ledger')
+              .select('*')
+              .eq('tenant_id', input.tenant_id)
+              .or(`payment_reference.eq.${input.payment_reference},idempotency_key.eq.${input.idempotency_key}`)
+              .limit(1)
+              .maybeSingle();
+            if (existing) {
+              logger.info({ paymentId: existing.id, reference: input.payment_reference }, '[PaymentLedger] Recovered existing payment record on conflict');
+              return existing;
+            }
+          }
+          throw error;
+        }
         logger.info({ paymentId: data.id, reference: input.payment_reference }, '[PaymentLedger] Appended payment record to immutable ledger');
         return data;
       } catch (err: any) {

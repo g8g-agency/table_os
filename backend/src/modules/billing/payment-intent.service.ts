@@ -110,7 +110,7 @@ export class PaymentIntentService {
   }
 
   /**
-   * Registers a settlement attempt, executes mock or real gateway capture,
+   * Registers a settlement attempt, validates provider capture references,
    * and completes payment application.
    */
   public static async processIntentSettlement(params: {
@@ -180,52 +180,62 @@ export class PaymentIntentService {
         throw new AppError(`Failed to register settlement attempt: ${attemptErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
       }
 
-      // 3. Trigger Payment Gateway capturing logic (Future payment integrations point here)
-      // Since this is the transaction runtime, we execute a deterministic capture process
-      const captureSuccessful = true; // Gateway succeeded
-      const ref = gatewayRef || `PAY-REF-${intent.id.substring(0, 8).toUpperCase()}-${Date.now()}`;
+      // 3. Trigger Payment Gateway capturing logic
+      // ARCHITECTURAL SEPARATION OF CASH/MANUAL VS EXTERNAL FLOWS:
+      // - Cash & POS manual payments go through authorized backend workflows (billing.controller.ts -> settleBill -> applySettlement)
+      //   and invoke settle_bill_and_vacate_safely directly.
+      // - External card/UPI payments require asynchronous verified provider webhooks/callbacks before settlement.
+      // - Direct automated card/UPI terminal capture via synchronous backend RPC is disabled until genuine gateway SDK credentials are configured.
+      // - A missing or failed provider capture MUST NEVER invoke settle_bill_and_vacate_safely.
 
-      if (captureSuccessful) {
-        // Success path
-        // A. Update Attempt
-        await supabaseAdmin
-          .from('settlement_attempts')
-          .update({
-            status: 'succeeded',
-            gateway_reference: ref,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', attempt.id);
-
-        // B. Apply settlement to the bill
-        await SettlementLifecycleService.applySettlement({
-          tenantId,
-          billId: intent.bill_id,
-          paymentIntentId: intentId,
-          paymentMethod: intent.payment_method,
-          amountMinor: Number(intent.amount_minor),
-          gatewayRef: ref,
-          gatewayPayload,
-          processedBy,
-        });
-
-        // C. Update intent status to 'captured'
-        const updatedIntent = await this.transitionIntentStatus(tenantId, intentId, 'captured');
-        return updatedIntent;
-      } else {
-        // Failure path
+      if (!gatewayRef) {
+        // No verified gateway reference provided from webhook/callback: reject direct automated capture
         await supabaseAdmin
           .from('settlement_attempts')
           .update({
             status: 'failed',
-            error_message: 'Gateway capture failed.',
+            error_message: 'External card/UPI terminal capture is NOT IMPLEMENTED. Real gateway credentials required.',
             updated_at: new Date().toISOString(),
           })
           .eq('id', attempt.id);
 
-        const updatedIntent = await this.transitionIntentStatus(tenantId, intentId, 'failed');
-        return updatedIntent;
+        await this.transitionIntentStatus(tenantId, intentId, 'failed');
+
+        throw new AppError(
+          'External card/UPI terminal capture is NOT IMPLEMENTED. External payments require verified asynchronous webhook confirmation before settlement.',
+          501,
+          ErrorCode.NOT_IMPLEMENTED
+        );
       }
+
+      // Verified gateway reference confirmed from webhook/callback: proceed with settlement
+      const ref = gatewayRef;
+
+      // A. Update Attempt
+      await supabaseAdmin
+        .from('settlement_attempts')
+        .update({
+          status: 'succeeded',
+          gateway_reference: ref,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', attempt.id);
+
+      // B. Apply settlement to the bill
+      await SettlementLifecycleService.applySettlement({
+        tenantId,
+        billId: intent.bill_id,
+        paymentIntentId: intentId,
+        paymentMethod: intent.payment_method,
+        amountMinor: Number(intent.amount_minor),
+        gatewayRef: ref,
+        gatewayPayload,
+        processedBy,
+      });
+
+      // C. Update intent status to 'captured'
+      const updatedIntent = await this.transitionIntentStatus(tenantId, intentId, 'captured');
+      return updatedIntent;
     } catch (err: any) {
       if (err instanceof AppError) throw err;
       throw new AppError(`Settlement process attempt failed: ${err.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);

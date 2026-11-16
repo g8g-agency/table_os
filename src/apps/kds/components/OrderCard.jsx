@@ -419,12 +419,12 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
           const isSelected = selectedItems.includes(itemId);
           const isRejected = item.isRejected || item.status === 'cancelled';
           const qty = item.qty || item.quantity || 1;
-          const note = item.note || item.notes || '';
+          const note = (item.note || item.notes || item.item_notes || item.special_instructions || '').trim();
           
           // Once accepted (preparing/accepted/ready/served), accepted items are ALWAYS ticked and can't be unticked
           const isItemDone = (!isPending && !isRejected) ? true : (item.done || item.status === 'completed');
           
-          const isAllergy  = note?.toLowerCase().includes('allergy');
+          const isAllergy  = /allergy|allergic|peanut|nut|gluten|celiac|dairy|vegan|vegetarian|egg|seafood|shellfish|sesame|soy/i.test(note);
 
           /* dim unselected pending items, rejected items, done cooking items */
           const rowOpacity = (isPending && !isSelected) ? 0.35
@@ -537,16 +537,28 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
 
                 {/* Allergy — danger */}
                 {isAllergy && (
-                  <p style={{
-                    fontSize:      '10px',
-                    fontWeight:    900,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.12em',
-                    color:         '#BA1A1A',
+                  <div style={{
+                    display:       'inline-flex',
+                    alignItems:    'center',
+                    gap:           '4px',
+                    padding:       '3px 8px',
+                    background:    '#FEF2F2',
+                    border:        '1px solid #FCA5A5',
+                    borderLeft:    '3px solid #DC2626',
+                    borderRadius:  '4px',
                     marginTop:     '6px',
                   }}>
-                    {note}
-                  </p>
+                    <span style={{ fontSize: '11px' }}>⚠️</span>
+                    <span style={{
+                      fontSize:      '10px',
+                      fontWeight:    900,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color:         '#B91C1C',
+                    }}>
+                      ALLERGY: {note}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>

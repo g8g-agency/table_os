@@ -29,7 +29,7 @@ const aggregateBillSchema = z.object({
 const createIntentSchema = z.object({
   billId: z.string().uuid(),
   amountMinor: z.number().int().positive(),
-  paymentMethod: z.enum(['cash', 'card', 'qr_pay', 'wallet', 'split', 'other']),
+  paymentMethod: z.enum(['cash', 'manual']),
   idempotencyKey: z.string().min(1),
 });
 
@@ -39,7 +39,7 @@ const settleIntentSchema = z.object({
 });
 
 const settleBillSchema = z.object({
-  paymentMethod: z.enum(['cash', 'card', 'qr_pay', 'wallet', 'split', 'other']),
+  paymentMethod: z.enum(['cash', 'manual']),
   amountMinor: z.number().int().positive(),
   gatewayRef: z.string().optional().nullable(),
   gatewayPayload: z.any().optional().nullable(),

@@ -106,6 +106,9 @@ export async function listWaiterCallsByBranch(
 
   if (filters?.status) {
     query = query.eq('status', filters.status);
+  } else {
+    // Authoritative default: active requests feed must NEVER return resolved calls
+    query = query.in('status', ['pending', 'acknowledged']);
   }
 
   const { data, error } = await query.order('created_at', { ascending: false });

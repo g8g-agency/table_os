@@ -39,6 +39,10 @@ const envSchema = z.object({
   QR_SESSION_SECRET: z.string().min(16, 'QR_SESSION_SECRET is required'),
   DEVICE_TOKEN_SECRET: z.string().min(16, 'DEVICE_TOKEN_SECRET is required'),
   RUNTIME_JWT_SECRET: z.string().min(16, 'RUNTIME_JWT_SECRET is required').default('runtime_jwt_secret_must_be_min_16_chars_long'),
+
+  // Payment Gateway Webhook Secrets (Optional in development, no insecure fallback defaults)
+  STRIPE_WEBHOOK_SECRET: z.string().min(1, 'STRIPE_WEBHOOK_SECRET cannot be empty').optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(1, 'RAZORPAY_WEBHOOK_SECRET cannot be empty').optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

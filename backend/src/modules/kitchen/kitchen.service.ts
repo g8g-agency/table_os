@@ -81,7 +81,7 @@ export async function routeOrderToKitchen(tenantId: string, orderId: string): Pr
       status: 'pending',
       priority: 1,
       estimated_prep_seconds: 600,
-      kitchen_notes: order.cancellation_reason || null,
+      kitchen_notes: order.order_notes || null,
       version_num: 1,
     })
     .select('*')
@@ -101,6 +101,7 @@ export async function routeOrderToKitchen(tenantId: string, orderId: string): Pr
       item_name: item.item_name_snapshot || item.name || 'UNKNOWN',
       quantity: item.quantity,
       modifier_summary: itemMods.map((m: any) => m.modifier_name).join(', ') || null,
+      item_notes: item.item_notes || null,
     };
   });
 

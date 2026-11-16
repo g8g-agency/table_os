@@ -229,7 +229,7 @@ export class TableQRService {
       device_fingerprint: deviceFingerprint || `anonymous-${requestIp}`,
       snapshot_id: branchData?.active_published_snapshot_id ?? undefined,
       customer_identity_id: customerIdentityId,
-      qr_code_id: undefined,
+      qr_code_id: tokenData.id,
     });
 
     // 4. Audit Logging for Security
