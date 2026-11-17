@@ -92,7 +92,8 @@ export function createApp(): express.Application {
       if (
         /^https:\/\/[a-zA-Z0-9-]+\.onrender\.com$/.test(requestOrigin) ||
         /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlyy\.com$/.test(requestOrigin) ||
-        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlli\.com$/.test(requestOrigin)
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlli\.com$/.test(requestOrigin) ||
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlii\.com$/.test(requestOrigin)
       ) {
         return callback(null, true);
       }

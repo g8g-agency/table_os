@@ -15,6 +15,13 @@ export default function ReviewModal({ isOpen, onClose, orderId, tenantId, branch
     setSubmitting(true)
     
     try {
+      if (!supabase) {
+        console.warn('[ReviewModal] Supabase client not initialized; skipping remote write');
+        localStorage.setItem(`reviewed_${orderId}`, 'true');
+        setSubmitted(true);
+        setTimeout(() => { onClose(); }, 2000);
+        return;
+      }
       const { error } = await supabase.from('reviews').insert({
         tenant_id: tenantId,
         branch_id: branchId,

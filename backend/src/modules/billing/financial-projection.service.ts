@@ -65,9 +65,26 @@ export class FinancialProjectionService {
         return [];
       }
 
+      // Deduplicate zero-payment bills by session so POS displays only the latest active check
+      const seenSessions = new Set<string>();
+      const filteredBills: any[] = [];
+      for (const bill of bills) {
+        const sessionKey = bill.table_session_id || bill.session_id;
+        const hasPayment = Number(bill.amount_paid_minor) > 0;
+        const isSplitChild = Boolean(bill.parent_bill_id);
+
+        if (sessionKey && !hasPayment && !isSplitChild) {
+          if (seenSessions.has(sessionKey)) {
+            continue; // Skip older zero-payment draft duplicate
+          }
+          seenSessions.add(sessionKey);
+        }
+        filteredBills.push(bill);
+      }
+
       const projections: TableBillProjection[] = [];
 
-      for (const bill of bills) {
+      for (const bill of filteredBills) {
         // 2. Fetch linked orders through the join table
         const { data: joinData, error: joinErr } = await supabaseAdmin
           .from('bill_orders')

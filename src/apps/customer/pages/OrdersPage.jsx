@@ -34,6 +34,11 @@ export default function OrdersPage() {
 
     const fetchOrders = async () => {
       if (cancelled) return;
+      if (!supabase) {
+        console.warn('[OrdersPage] Supabase client not initialized; cannot fetch orders');
+        setLoading(false);
+        return;
+      }
       try {
         const sessionStart = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
         const { data: fetchedOrders, error: ordersError } = await supabase
@@ -87,20 +92,24 @@ export default function OrdersPage() {
 
     // Realtime subscription instead of polling
     const channel = supabase
-      .channel(`orders_page_${tableId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'orders',
-        filter: `table_id=eq.${tableId}`,
-      }, () => {
-        fetchOrders(); // refetch on any change
-      })
-      .subscribe();
+      ? supabase
+          .channel(`orders_page_${tableId}`)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'orders',
+            filter: `table_id=eq.${tableId}`,
+          }, () => {
+            fetchOrders(); // refetch on any change
+          })
+          .subscribe()
+      : null;
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [tableId, activeTenantId, session.name]);
 

@@ -59,8 +59,19 @@ export class SettlementLifecycleService {
         if (errCode === 'GATEWAY_REF_ALREADY_USED' || errCode === 'PAYMENT_INTENT_ALREADY_USED') {
           throw new AppError(errMsg, 409, ErrorCode.CONFLICT);
         }
-        if (errCode === 'BILL_ALREADY_SETTLED' || errCode === 'OVERPAYMENT_NOT_PERMITTED' || errCode === 'OVERPAYMENT_EXCEEDED') {
+        if (
+          errCode === 'BILL_ALREADY_SETTLED' ||
+          errCode === 'OVERPAYMENT_NOT_PERMITTED' ||
+          errCode === 'OVERPAYMENT_EXCEEDED' ||
+          errCode === 'INVALID_AMOUNT' ||
+          errCode === 'INVALID_PAYMENT_METHOD' ||
+          errCode === 'UNSUPPORTED_PAYMENT_METHOD' ||
+          errCode === 'GATEWAY_SETTLEMENT_DEFERRED'
+        ) {
           throw new AppError(errMsg, 400, ErrorCode.VALIDATION_ERROR);
+        }
+        if (errCode === 'BILL_NOT_FOUND' || errCode === 'SESSION_NOT_FOUND') {
+          throw new AppError(errMsg, 404, ErrorCode.NOT_FOUND);
         }
         throw new AppError(`Settlement write failed: ${errMsg}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
       }
@@ -146,7 +157,7 @@ export class SettlementLifecycleService {
 
         // D. Inspect atomic vacation result from settle_bill_and_vacate_safely
         const closureData = settleResult.vacate_result;
-        if (closureData && closureData.success === true) {
+        if (settleResult.table_vacated === true && closureData && closureData.success === true) {
           await supabaseAdmin.rpc('log_financial_event', {
             p_tenant_id: tenantId,
             p_branch_id: updatedBill.branch_id,
@@ -193,6 +204,19 @@ export class SettlementLifecycleService {
               logger.warn({ err: wsErr?.message }, '[SettlementLifecycle] Failed to broadcast table_vacated WS');
             }
           }
+        }
+
+        if (settleResult?.code === 'SETTLEMENT_COMMITTED_VACANCY_PENDING') {
+          logger.warn(
+            {
+              billId,
+              vacateCode: settleResult.vacate_code,
+              vacateError: settleResult.vacate_error,
+              warning: settleResult.warning,
+              vacateResult: settleResult.vacate_result,
+            },
+            '[SettlementLifecycle] OPERATIONAL WARNING: Bill settled in full; automatic table vacancy requires operational attention'
+          );
         }
       }
 

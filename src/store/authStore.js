@@ -21,6 +21,12 @@ export const useAuthStore = create(
       resolveContext: async () => {
         // Clear previous errors but don't force loading on background refreshes
         set({ error: null })
+
+        if (!supabase) {
+          console.warn('[AuthStore] Supabase client is null (missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY).')
+          set({ error: 'Supabase configuration is missing.', isLoading: false })
+          return null
+        }
         
         try {
           const { data: { session }, error: sessionError } = await supabase.auth.getSession()
@@ -82,6 +88,11 @@ export const useAuthStore = create(
 
       // ── Login (email + password) ─────────────────────────
       login: async ({ email, password }) => {
+        if (!supabase) {
+          set({ error: 'Supabase configuration is missing. Contact administrator.', isLoading: false })
+          throw new Error('Supabase configuration is missing. Contact administrator.')
+        }
+
         // MANDATORY: signOut() before new login to clear stale sessions
         try {
           await supabase.auth.signOut()
@@ -126,6 +137,11 @@ export const useAuthStore = create(
 
       // ── KDS PIN-only Login (KEPT SEPARATE) ───────────────
       loginKDS: async ({ restaurantCode, pin }) => {
+        if (!supabase) {
+          set({ error: 'Supabase configuration is missing. Contact administrator.', isLoading: false })
+          throw new Error('Supabase configuration is missing. Contact administrator.')
+        }
+
         try { await supabase.auth.signOut() } catch {}
         
         set({ user: null, tenantId: null, tenant: null, isLoading: true, error: null })
@@ -179,9 +195,11 @@ export const useAuthStore = create(
 
       // ── Logout ───────────────────────────────────────────────
       logout: async () => {
-        try {
-          await supabase.auth.signOut()
-        } catch { }
+        if (supabase) {
+          try {
+            await supabase.auth.signOut()
+          } catch { }
+        }
         set({ user: null, tenantId: null, tenant: null, onboarding: null, flags: null, error: null })
         if (typeof window !== 'undefined') {
           window.localStorage.removeItem('tableos-admin-auth')

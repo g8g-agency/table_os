@@ -10,6 +10,13 @@ export class SupabaseTransportAdapter implements RealtimeTransportAdapter {
   }
 
   public connect(topic: string, onMessage: (payload: any) => void, onStatusChange: (status: 'CONNECTED' | 'DISCONNECTED') => void): void {
+    if (!this.supabaseClient) {
+      console.warn('[SupabaseTransportAdapter] Supabase client is not initialized; cannot connect to topic:', topic);
+      this.currentState = 'DISCONNECTED';
+      onStatusChange('DISCONNECTED');
+      return;
+    }
+
     if (this.channel) {
       this.disconnect();
     }
@@ -32,8 +39,14 @@ export class SupabaseTransportAdapter implements RealtimeTransportAdapter {
   }
 
   public disconnect(): void {
-    if (this.channel) {
-      this.supabaseClient.removeChannel(this.channel);
+    if (this.channel && this.supabaseClient) {
+      try {
+        this.supabaseClient.removeChannel(this.channel);
+      } catch (e) {
+        console.warn('[SupabaseTransportAdapter] Error removing channel:', e);
+      }
+      this.channel = null;
+    } else if (this.channel) {
       this.channel = null;
     }
     this.currentState = 'DISCONNECTED';

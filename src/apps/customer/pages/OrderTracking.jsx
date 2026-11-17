@@ -91,30 +91,34 @@ export default function OrderTracking() {
     runtime.bootstrap('customer_order_tracking', resolvedOrderId, adapter, topic);
 
     // Direct Supabase realtime subscription for instant order updates
-    const channel = supabase.channel(`customer_order_${resolvedOrderId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: `id=eq.${resolvedOrderId}`
-        },
-        (payload) => {
-          console.debug('[OrderTracking] Realtime update:', payload.new)
-          if (payload.new) {
-            useOrderStore.getState().replaceOrderProjection(payload.new)
-          }
-        }
-      )
-      .subscribe()
+    const channel = supabase
+      ? supabase.channel(`customer_order_${resolvedOrderId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'orders',
+              filter: `id=eq.${resolvedOrderId}`
+            },
+            (payload) => {
+              console.debug('[OrderTracking] Realtime update:', payload.new)
+              if (payload.new) {
+                useOrderStore.getState().replaceOrderProjection(payload.new)
+              }
+            }
+          )
+          .subscribe()
+      : null;
 
     // Fallback polling — degraded mode recovery until projection store is wired
     const fallbackPoll = setInterval(fetchOrder, 10000)
 
     return () => {
       clearInterval(fallbackPoll)
-      supabase.removeChannel(channel)
+      if (channel && supabase) {
+        supabase.removeChannel(channel)
+      }
       runtime.transport.suspend()
     }
   }, [resolvedOrderId])
