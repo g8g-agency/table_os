@@ -15,6 +15,13 @@ export interface TransportAuditLogInput {
 }
 
 export async function logTransportAudit(data: TransportAuditLogInput): Promise<void> {
+  // Only persist critical audit events (e.g. AUTH_FAIL, GAP_DETECTED) to database.
+  // Routine connection lifecycle events are logged to standard logger to prevent database write starvation.
+  if (['CONNECT', 'DISCONNECT', 'STALE_HEARTBEAT', 'RECONNECT_ATTEMPT'].includes(data.event_type)) {
+    logger.debug({ event_type: data.event_type, connection_id: data.connection_id, user_id: data.user_id }, '[TransportAudit] Routine connection event');
+    return;
+  }
+
   try {
     const { error } = await supabaseAdmin
       .from('transport_audit_logs')

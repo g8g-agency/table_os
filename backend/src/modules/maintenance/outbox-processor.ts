@@ -29,6 +29,7 @@ export class OutboxProcessor {
       case 'order.completed':     return 'ORDER_COMPLETED';
       case 'order.cancelled':     return 'ORDER_CANCELLED';
       case 'table.updated':       return 'TABLE_UPDATED';
+      case 'table.vacated':       return 'TABLE_UPDATED';
       case 'waiter_call.created':      return 'WAITER_CALL_CREATED';
       case 'waiter_call.acknowledged': return 'WAITER_CALL_ACKNOWLEDGED';
       case 'waiter_call.resolved':     return 'WAITER_CALL_RESOLVED';
@@ -44,15 +45,37 @@ export class OutboxProcessor {
     const start = Date.now();
     const realtimeType = this.mapEventType(event.event_type);
 
-    if (event.event_type === 'table.session_expired') {
+    if (event.event_type === 'table.session_expired' || event.event_type === 'table.vacated') {
       try {
         const tableId = event.aggregate_id;
         const tenantId = event.tenant_id;
         // Purely trigger a rebuild from the source of truth, ignoring the payload
         await rebuildTableProjection(supabaseAdmin, tenantId, tableId);
         
+        const branchId = event.payload?.branch_id || event.payload?.branchId;
+        if (branchId) {
+          try {
+            const { WebSocketManager } = await import('../transport/websocket.manager');
+            WebSocketManager.getInstance().broadcastToBranch(
+              branchId,
+              'SYSTEM',
+              'OPERATIONAL_STREAM',
+              'table_updated',
+              {
+                tableId,
+                table_id: tableId,
+                assignedStaffId: null,
+                assigned_staff_id: null,
+                status: 'VACANT',
+                runtime_state: 'FREE',
+                event_type: 'TABLE_VACATED',
+              }
+            );
+          } catch (_) {}
+        }
+
         await markEventDelivered(event.id, Date.now() - start);
-        logger.info({ eventId: event.id, tableId }, '[OutboxProcessor] Rebuilt projection for table.session_expired.');
+        logger.info({ eventId: event.id, tableId }, '[OutboxProcessor] Rebuilt projection for table event.');
         return;
       } catch (err: any) {
         const elapsed = Date.now() - start;
@@ -111,6 +134,23 @@ export class OutboxProcessor {
         });
 
         await RealtimePublisherService.publishEvent(canonicalEvent);
+
+        try {
+          const { WebSocketManager } = await import('../transport/websocket.manager');
+          WebSocketManager.getInstance().broadcastToBranch(
+            call.branch_id,
+            'SYSTEM',
+            'OPERATIONAL_STREAM',
+            'waiter_call',
+            {
+              ...call,
+              table_number: event.payload?.table_number,
+              event_type: realtimeType,
+            }
+          );
+        } catch (wsErr: any) {
+          logger.warn({ err: wsErr?.message }, '[OutboxProcessor] Non-fatal WS broadcast warning for WaiterCall');
+        }
       } else {
         throw new Error(`Unsupported outbox aggregate type: '${event.aggregate_type}'`);
       }

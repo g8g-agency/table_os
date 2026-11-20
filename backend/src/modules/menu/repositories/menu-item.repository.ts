@@ -151,6 +151,23 @@ export async function findAnyItemById(
   return data;
 }
 
+export async function findAnyItemsByIds(
+  tenantId: string,
+  itemIds: string[]
+): Promise<MenuItem[]> {
+  if (itemIds.length === 0) return [];
+  const { data, error } = await supabaseAdmin
+    .from('menu_items')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .in('id', itemIds);
+
+  if (error) {
+    throw new Error(`[MenuItemRepo] findAnyItemsByIds: ${error.message}`);
+  }
+  return (data ?? []) as MenuItem[];
+}
+
 export async function findItemBySlug(
   tenantId: string,
   slug: string
@@ -250,6 +267,8 @@ export async function createMenuItem(
     is_veg:            dto.is_veg ?? false,
     image_url:         dto.image_url ?? null,
     thumbnail_url:     dto.thumbnail_url ?? null,
+    recommendation_enabled: dto.recommendation_enabled ?? true,
+    recommendation_tags:    dto.recommendation_tags ? Array.from(new Set(dto.recommendation_tags.map(t => t.trim().toLowerCase()).filter(Boolean))) : [],
     created_by:        createdBy,
   };
 
@@ -296,6 +315,9 @@ export async function updateMenuItem(
   }
   if (updateData.status !== undefined && legacy.is_available) {
     patch.is_available = updateData.status === 'active';
+  }
+  if (updateData.recommendation_tags !== undefined) {
+    patch.recommendation_tags = Array.from(new Set(updateData.recommendation_tags.map(t => t.trim().toLowerCase()).filter(Boolean)));
   }
 
   const { data, error } = await supabaseAdmin

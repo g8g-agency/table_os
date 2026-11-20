@@ -8,7 +8,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import { env } from './env';
+
+// Polyfill WebSocket for Supabase Realtime in Node < 22 runtimes
+if (typeof (globalThis as unknown as { WebSocket?: typeof ws }).WebSocket === 'undefined') {
+  (globalThis as unknown as { WebSocket: typeof ws }).WebSocket = ws;
+}
 
 /**
  * Admin client — service_role key.

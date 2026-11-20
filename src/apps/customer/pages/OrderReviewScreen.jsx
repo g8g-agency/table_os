@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { fetchWithRuntime } from '../../../lib/apiClient'
 import { useOrderStore } from '../../../store/index'
 
@@ -31,7 +30,6 @@ const StarRating = ({ value, onChange, label }) => {
 }
 
 export default function OrderReviewScreen({ order, onComplete }) {
-  const navigate = useNavigate()
   const [foodRating, setFoodRating] = useState(0)
   const [serviceRating, setServiceRating] = useState(0)
   const [comment, setComment] = useState('')

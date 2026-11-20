@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../shared/errors/AppError';
 import { ErrorCode } from '../../shared/errors/error-codes';
 
-const router = Router({ mergeParams: true });
+const router: Router = Router({ mergeParams: true });
 
 router.post('/fake-payment/:orderId', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {

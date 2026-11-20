@@ -28,7 +28,7 @@ router.get('/projections/table/:tableId', getTableProjection);
 router.get('/projections/reconciliation', getReconciliation);
 
 // Bill Lifecycle Management
-router.post('/bills/aggregate', aggregateBill);
+router.post('/bills/aggregate', requestIdempotency(), aggregateBill);
 router.get('/bills/:id', getBillDetails);
 router.post('/bills/:id/settle', settleBill);
 router.post('/bills/:id/void', voidBill);

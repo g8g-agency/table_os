@@ -161,6 +161,8 @@ export class WebSocketManager {
     });
 
     ws.on('message', (data: Buffer) => {
+      (ws as any).isAlive = true;
+      (ws as any).missedPings = 0;
       this.handleClientFrame(ws, identity, data);
     });
 
@@ -267,11 +269,17 @@ export class WebSocketManager {
       this.branchChannels.forEach((clients, _branchId) => {
         clients.forEach((ws: any) => {
           if (ws.isAlive === false) {
-            void logTransportAudit({
-              ...ws.identity,
-              event_type: 'STALE_HEARTBEAT'
-            });
-            return ws.terminate();
+            ws.missedPings = (ws.missedPings || 0) + 1;
+            // Allow up to 2 missed ping cycles (60s) before terminating
+            if (ws.missedPings >= 2) {
+              void logTransportAudit({
+                ...ws.identity,
+                event_type: 'STALE_HEARTBEAT'
+              });
+              return ws.terminate();
+            }
+          } else {
+            ws.missedPings = 0;
           }
 
           ws.isAlive = false;

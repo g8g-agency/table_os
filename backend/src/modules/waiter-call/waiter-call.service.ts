@@ -8,6 +8,7 @@ import { ErrorCode } from '../../shared/errors/error-codes';
 import { findTableById } from '../tables/repositories/table.repository';
 import * as waiterCallRepo from './waiter-call.repository';
 import { supabaseAdmin } from '../../config/supabase';
+import { WebSocketManager } from '../transport/websocket.manager';
 import type { WaiterCall, WaiterCallStatus } from './waiter-call.types';
 import type { CreateWaiterCallDto, UpdateWaiterCallStatusDto } from './waiter-call.dtos';
 
@@ -61,6 +62,32 @@ export async function createWaiterCall(params: {
     // Log error but do not fail the request if it is just a telemetry fail, 
     // although in a strict transaction we would roll back.
     console.error(`[WaiterCall] Failed to insert outbox event: ${eventError.message}`);
+  }
+
+  // 4. Realtime broadcast to branch staff over native WebSocket
+  try {
+    WebSocketManager.getInstance().broadcastToBranch(
+      table.branch_id,
+      'SYSTEM',
+      'OPERATIONAL_STREAM',
+      'waiter_call',
+      {
+        id: call.id,
+        tenant_id: tenantId,
+        branch_id: table.branch_id,
+        table_id: tableId,
+        table_number: table.table_number,
+        session_id: sessionId || null,
+        type: call.type,
+        notes: call.notes,
+        status: call.status,
+        created_at: call.created_at,
+        version_num: call.version_num,
+        event_type: 'WAITER_CALL_CREATED',
+      }
+    );
+  } catch (wsErr: any) {
+    console.error(`[WaiterCall] WebSocket broadcast error: ${wsErr?.message}`);
   }
 
   return call;
@@ -123,6 +150,34 @@ export async function transitionCallStatus(params: {
 
   if (eventError) {
     console.error(`[WaiterCall] Failed to insert transition outbox event: ${eventError.message}`);
+  }
+
+  // Realtime broadcast to branch staff over native WebSocket
+  try {
+    WebSocketManager.getInstance().broadcastToBranch(
+      updatedCall.branch_id,
+      'SYSTEM',
+      'OPERATIONAL_STREAM',
+      'waiter_call',
+      {
+        id: updatedCall.id,
+        tenant_id: tenantId,
+        branch_id: updatedCall.branch_id,
+        table_id: updatedCall.table_id,
+        session_id: updatedCall.session_id,
+        type: updatedCall.type,
+        notes: updatedCall.notes,
+        status: updatedCall.status,
+        created_at: updatedCall.created_at,
+        updated_at: updatedCall.updated_at,
+        acknowledged_by: updatedCall.acknowledged_by,
+        resolved_by: updatedCall.resolved_by,
+        version_num: updatedCall.version_num,
+        event_type: `WAITER_CALL_${dto.status.toUpperCase()}`,
+      }
+    );
+  } catch (wsErr: any) {
+    console.error(`[WaiterCall] WebSocket transition broadcast error: ${wsErr?.message}`);
   }
 
   return updatedCall;

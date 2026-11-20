@@ -1,4 +1,3 @@
-/* eslint-disable */
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getTableNum } from '../utils/tableNum'
 import { BottomNav } from '../components/BottomNav'

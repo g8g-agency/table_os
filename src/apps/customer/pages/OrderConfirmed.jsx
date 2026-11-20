@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import confetti from 'canvas-confetti'
-import { fetchWithRuntime } from '../../../lib/apiClient'
+import { fetchPublicApi } from '../../../lib/apiClient'
 import { motion } from 'framer-motion'
 import { getQrSession } from '../utils/qrSession'
 
@@ -40,16 +40,21 @@ export default function OrderConfirmed() {
       }
 
       try {
-        const { tenantId, tableId } = getQrSession()
-        const params = new URLSearchParams()
-        if (tenantId) params.set('tenantId', tenantId)
-        if (tableId) params.set('tableId', tableId)
-        const res = await fetchWithRuntime(`/api/v1/customer/orders/${resolvedOrderId}?${params.toString()}`)
+        const { sessionToken } = getQrSession()
+        const res = await fetchPublicApi(`/api/v1/public/orders/${resolvedOrderId}/status`, {
+          headers: sessionToken ? { 'x-qr-session-token': sessionToken } : {}
+        })
         if (!res.ok) throw new Error('Not found')
         const { data } = await res.json()
         if (!data) throw new Error('Not found')
         
-        setOrder(data)
+        setOrder({
+          ...data,
+          order_items: data.items || [],
+          total_amount: data.total_minor ? Math.round(data.total_minor / 100) : 0,
+          tax_amount: data.tax_minor ? Math.round(data.tax_minor / 100) : 0,
+          subtotal: data.subtotal_minor ? Math.round(data.subtotal_minor / 100) : 0,
+        })
         
         // Trigger checkmark animation
         setTimeout(() => setShowCheck(true), 100)

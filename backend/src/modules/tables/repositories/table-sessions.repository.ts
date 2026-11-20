@@ -4,13 +4,18 @@ import { AppError } from '../../../shared/errors/AppError';
 import { ErrorCode } from '../../../shared/errors/error-codes';
 
 export class TableSessionsRepository {
-  public static async getActiveSession(tableId: string): Promise<TableSession | null> {
-    const { data, error } = await supabaseAdmin
+  public static async getActiveSession(tableId: string, tenantId?: string): Promise<TableSession | null> {
+    let query = supabaseAdmin
       .from('table_sessions')
       .select('*')
       .eq('table_id', tableId)
-      .in('status', ['open', 'payment_requested', 'payment_processing'])
-      .maybeSingle();
+      .in('status', ['open', 'payment_requested', 'payment_processing']);
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       throw new AppError(`Failed to fetch active table session: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
@@ -18,12 +23,17 @@ export class TableSessionsRepository {
     return data;
   }
 
-  public static async getSessionById(sessionId: string): Promise<TableSession | null> {
-    const { data, error } = await supabaseAdmin
+  public static async getSessionById(sessionId: string, tenantId?: string): Promise<TableSession | null> {
+    let query = supabaseAdmin
       .from('table_sessions')
       .select('*')
-      .eq('id', sessionId)
-      .maybeSingle();
+      .eq('id', sessionId);
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       throw new AppError(`Failed to fetch table session: ${error.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);

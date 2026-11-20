@@ -1,5 +1,6 @@
 import { useTransportStore, TransportState } from '../../store/transportStore';
 import { useRuntimeAuthStore } from '../../store/runtimeAuthStore';
+import { useRuntimeIdentityStore } from '../../store/runtimeIdentityStore';
 
 // Constants
 const HEARTBEAT_TIMEOUT = 35000; // 35 seconds (server pings every 30)
@@ -54,7 +55,12 @@ export class WebSocketRuntime {
     );
 
     const { runtimeToken } = useRuntimeAuthStore.getState();
-    const token = runtimeToken || this._getQrTokenFromUrl();
+    const identityToken = useRuntimeIdentityStore.getState().runtimeToken;
+    const token =
+      runtimeToken ||
+      identityToken ||
+      (typeof localStorage !== 'undefined' ? (localStorage.getItem('token') || localStorage.getItem('access_token')) : null) ||
+      this._getQrTokenFromUrl();
 
     if (!token) {
       console.error('[WebSocketRuntime] No auth token available. Connection aborted.');

@@ -19,6 +19,9 @@ export function useCartRecommendations(cartItems, limit = 5) {
   const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
+  const refetch = () => setRetryTrigger(t => t + 1);
 
   // Stable cart fingerprint to detect real changes (avoids re-fetching on same cart)
   const cartFingerprint = useMemo(() => {
@@ -102,7 +105,7 @@ export function useCartRecommendations(cartItems, limit = 5) {
         abortControllerRef.current = null;
       }
     };
-  }, [cartFingerprint, limit]);
+  }, [cartFingerprint, limit, retryTrigger]);
 
-  return { recommendations, isLoading, error };
+  return { recommendations, isLoading, error, refetch };
 }

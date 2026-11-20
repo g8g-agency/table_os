@@ -70,25 +70,11 @@ export async function createPublicOrder(params: {
     if (!['open', 'locked'].includes(cart.status)) {
       throw new AppError(`Cannot checkout a cart in '${cart.status}' status.`, 400, ErrorCode.VALIDATION_ERROR);
     }
-    // Flush any previous cart items to represent the current checkout request exclusively
-    await cartRepo.clearCart(cart.id);
   }
 
-  // 3. Populate cart items using cart service (validates availability, pricing overrides, and modifier group constraints)
-  for (const item of input.items) {
-    await cartService.addCartItem(tenantId, sessionId, {
-      menu_item_id: item.menu_item_id,
-      quantity: item.quantity,
-      item_notes: item.item_notes,
-      modifiers: item.modifiers,
-    });
-  }
-
-  // 4. Retrieve refreshed cart details to obtain the correct version number
-  const latestCart = await cartRepo.findCartById(tenantId, cart.id);
-  if (!latestCart) {
-    throw new AppError('Cart not found during checkout assembly.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
-  }
+  // 3. Populate cart items using batch assembly (single menu resolution + validation)
+  const cartDetail = await cartService.addCartItemsBatch(tenantId, sessionId, input.items);
+  const latestCart = cartDetail.cart;
 
   if (input.order_notes) {
     await cartRepo.updateCartNotes(tenantId, latestCart.id, {

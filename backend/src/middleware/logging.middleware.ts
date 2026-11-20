@@ -16,7 +16,10 @@ export const loggingMiddleware = pinoHttp({
     return `${req.method} ${req.url} ${res.statusCode}`;
   },
   customErrorMessage: (req, res, err) => {
-    return `${req.method} ${req.url} ${res.statusCode} - ${err.message}`;
+    const errorToLog = (res as any).err || err;
+    const errName = errorToLog?.name || 'Error';
+    const errMsg = errorToLog?.message || 'Unknown error';
+    return `${req.method} ${req.url} ${res.statusCode} - ${errName}: ${errMsg}`;
   },
   // Redact potentially sensitive info from logs
   serializers: {

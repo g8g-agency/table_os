@@ -58,12 +58,13 @@ interface CachedAccountState {
   is_active: boolean;
   is_locked: boolean;
   locked_until: string | null;
+  tenant_id?: string | null;
   expiresAt: number;
 }
 const accountStateCache = new Map<string, CachedAccountState>();
 const ACCOUNT_STATE_TTL_MS = 30_000; // 30 seconds
 
-async function getAccountState(userId: string, email: string): Promise<{ active: boolean; reason?: string }> {
+async function getAccountState(userId: string, email: string): Promise<{ active: boolean; reason?: string; tenant_id?: string | null }> {
   const now = Date.now();
   const cached = accountStateCache.get(userId);
   if (cached && cached.expiresAt > now) {
@@ -72,13 +73,13 @@ async function getAccountState(userId: string, email: string): Promise<{ active:
       const until = cached.locked_until ? new Date(cached.locked_until) : null;
       if (!until || until > new Date()) return { active: false, reason: 'Account is locked' };
     }
-    return { active: true };
+    return { active: true, tenant_id: cached.tenant_id };
   }
 
   // Try admin_profiles first
   const { data: profile } = await supabaseAdmin
     .from('admin_profiles')
-    .select('is_active, is_locked, locked_until')
+    .select('is_active, is_locked, locked_until, tenant_id')
     .or(`id.eq.${userId},email.eq.${encodeURIComponent(email)}`)
     .maybeSingle();
 
@@ -87,6 +88,7 @@ async function getAccountState(userId: string, email: string): Promise<{ active:
       is_active: profile.is_active ?? true,
       is_locked: profile.is_locked ?? false,
       locked_until: profile.locked_until ?? null,
+      tenant_id: (profile as any).tenant_id ?? null,
       expiresAt: now + ACCOUNT_STATE_TTL_MS,
     });
     if (!profile.is_active) return { active: false, reason: 'Account is disabled' };
@@ -94,13 +96,13 @@ async function getAccountState(userId: string, email: string): Promise<{ active:
       const until = profile.locked_until ? new Date(profile.locked_until) : null;
       if (!until || until > new Date()) return { active: false, reason: 'Account is locked' };
     }
-    return { active: true };
+    return { active: true, tenant_id: (profile as any).tenant_id ?? null };
   }
 
-  // Fallback: staff table (no locking concept, just is_active)
+  // Fallback: staff table (no locking concept, just is_active + tenant_id)
   const { data: staffRow } = await supabaseAdmin
     .from('staff')
-    .select('is_active')
+    .select('is_active, tenant_id')
     .or(`id.eq.${userId},user_id.eq.${userId}`)
     .maybeSingle();
 
@@ -109,9 +111,11 @@ async function getAccountState(userId: string, email: string): Promise<{ active:
       is_active: staffRow.is_active !== false,
       is_locked: false,
       locked_until: null,
+      tenant_id: (staffRow as any).tenant_id ?? null,
       expiresAt: now + ACCOUNT_STATE_TTL_MS,
     });
     if (staffRow.is_active === false) return { active: false, reason: 'Staff account is inactive' };
+    return { active: true, tenant_id: (staffRow as any).tenant_id ?? null };
   }
 
   // No profile found — allow through (SUPER_ADMIN or first-time login scenario)
@@ -145,6 +149,8 @@ export async function loginWithEmail(
   userAgent: string
 ): Promise<LoginResponse> {
   // 1. Rate limit check (per IP and per email)
+  if (env.NODE_ENV !== 'development') {
+
   const ipKey = `login:ip:${ipAddress}`;
   const emailKey = `login:email:${request.email.toLowerCase()}`;
 
@@ -181,6 +187,8 @@ export async function loginWithEmail(
       failureReason: 'Email rate limited',
     });
     throw new RateLimitError(retryAfter);
+  }
+
   }
 
   // 2. Authenticate with Supabase Auth (using a throwaway client to prevent global session mutation)
@@ -489,10 +497,10 @@ export async function validateAccessToken(accessToken: string): Promise<TokenVal
     return { valid: false, error: accountState.reason ?? 'Account is not active' };
   }
 
-  // 3. Extract context from JWT app_metadata
+  // 3. Extract context from JWT app_metadata with fallback to DB profile/staff
   const appMeta = decodedToken.app_metadata || {};
   const userMeta = decodedToken.user_metadata || {};
-  const tenantId = appMeta.tenant_id as string | null;
+  const tenantId = (appMeta.tenant_id as string | null) || accountState.tenant_id || null;
   
   // Normalize role to match RBAC constants
   let roleStr = (appMeta.rbac_role || 'STAFF').toUpperCase();

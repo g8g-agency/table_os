@@ -75,6 +75,11 @@ export default function TableQrLanding() {
         title = 'Too Many Scans'
         message = 'Please wait a moment before trying again.'
         break
+      case 'TABLE_OCCUPIED_INCONSISTENT_STATE':
+      case 'TABLE_NOT_ELIGIBLE':
+        title = 'Table Unavailable'
+        message = 'This table cannot accept new orders right now. Please notify a staff member to assist you.'
+        break
       case 'QR_RESOLUTION_FAILED':
       default:
         title = 'Unable to Connect'

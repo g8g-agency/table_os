@@ -204,14 +204,24 @@ export async function createOrderFromCart(params: {
   }
   const tableSessionId = activeSession.id;
 
+  // Bind active table session to guest session to satisfy atomic checkout invariants
+  const effectiveSessionId = params.sessionId || cart.session_id || null;
+  if (effectiveSessionId) {
+    await supabaseAdmin
+      .from('guest_sessions')
+      .update({ table_session_id: tableSessionId })
+      .eq('id', effectiveSessionId)
+      .eq('tenant_id', tenantId);
+  }
+
   // 4. Create immutable order snapshots (reads cart, runs database-level snapshot inserts)
   const snapshotId = await createOrderSnapshot(tenantId, cartId, cart.version_num, customerName);
 
-  // 4. Generate client side UUIDs for the transaction
+  // 5. Generate client side UUIDs for the transaction
     const orderId = crypto.randomUUID();
     const invoiceId = crypto.randomUUID();
 
-    // 5. Generate daily sequential order and invoice numbers atomically via branch sequence allocation
+    // 6. Generate daily sequential order and invoice numbers atomically via branch sequence allocation
     const orderNumber = await allocateSequenceNumber({
       tenantId,
       branchId: cart.branch_id,
@@ -271,8 +281,13 @@ export async function createOrderFromCart(params: {
         );
       }
 
-      if (error!.message.includes('resolved_at') || error!.message.includes('column')) {
-        logger.warn({ error: error.message }, '[OrderService] DB RPC failed on schema column check, executing direct atomic checkout fallback');
+      if (
+        error!.message.includes('resolved_at') ||
+        error!.message.includes('column') ||
+        error!.message.includes('Could not find the function') ||
+        error!.message.includes('schema cache')
+      ) {
+        logger.warn({ error: error.message }, '[OrderService] DB RPC failed or not present, executing direct atomic checkout fallback');
         
         // 1. Lock cart
         await supabaseAdmin.from('carts').update({
@@ -304,18 +319,51 @@ export async function createOrderFromCart(params: {
           throw new AppError(`Fallback order creation failed: ${orderInsError.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
         }
 
+        // Link order_snapshot to the order
+        await supabaseAdmin.from('order_snapshots').update({
+          order_id: orderId,
+        }).eq('id', snapshotId).eq('tenant_id', tenantId);
+
+        const computedSubtotal = cartItems.reduce((acc, item) => {
+          const itemMods = modifiers.filter(m => m.cart_item_id === item.id);
+          const modTotal = itemMods.reduce((mAcc, m) => mAcc + Number(m.price_delta_minor_snapshot || 0), 0);
+          return acc + ((Number(item.unit_price_minor_snapshot || 0) + modTotal) * item.quantity);
+        }, 0);
+
         // 3. Insert invoice
-        await supabaseAdmin.from('invoices').insert({
+        const { error: invError } = await supabaseAdmin.from('invoices').insert({
           id: invoiceId,
           tenant_id: tenantId,
           branch_id: cart.branch_id,
           order_id: orderId,
+          order_snapshot_id: snapshotId,
           invoice_number: invoiceNumber,
-          status: 'unpaid',
-          subtotal_minor: (cart as any).subtotal_minor || 0,
-          tax_minor: (cart as any).tax_minor || 0,
-          total_minor: (cart as any).total_minor || 0,
+          status: 'draft',
+          subtotal_minor: computedSubtotal,
+          tax_total_minor: 0,
+          discount_total_minor: 0,
+          grand_total_minor: computedSubtotal,
+          amount_paid_minor: 0,
         });
+
+        if (invError) {
+          logger.error({ error: invError.message }, '[OrderService] Failed to insert invoice in fallback');
+        }
+
+        // Insert order items in fallback
+        if (cartItems.length > 0) {
+          const orderItemsToInsert = cartItems.map(ci => ({
+            order_id: orderId,
+            menu_item_id: ci.menu_item_id,
+            name: ci.item_name_snapshot || 'Item',
+            qty: ci.quantity,
+            unit_price: Number(ci.unit_price_minor_snapshot || 0) / 100.0,
+            note: ci.item_notes || null,
+            item_notes: ci.item_notes || null,
+            special_instructions: ci.item_notes || null,
+          }));
+          await supabaseAdmin.from('order_items').insert(orderItemsToInsert);
+        }
 
         responseData = { order_id: orderId, invoice_id: invoiceId, status: 'pending' };
       } else {
@@ -333,6 +381,9 @@ export async function createOrderFromCart(params: {
     if (Object.keys(explicitUpdates).length > 0) {
       await supabaseAdmin.from('orders').update(explicitUpdates).eq('id', orderId).eq('tenant_id', tenantId);
     }
+
+    // Ensure order_snapshot is linked to the order
+    await supabaseAdmin.from('order_snapshots').update({ order_id: orderId }).eq('id', snapshotId).eq('tenant_id', tenantId);
 
     const response = responseData as { order_id: string; invoice_id: string; status: string };
     
@@ -401,6 +452,18 @@ async function _dispatchOrderAssignedEvent(
     }
 
     const assignedStaffId = tableData?.assigned_staff_id ?? null;
+    let assignedStaffName: string | null = null;
+    if (assignedStaffId) {
+      try {
+        const { data: staffData } = await supabaseAdmin
+          .from('staff')
+          .select('name')
+          .eq('id', assignedStaffId)
+          .maybeSingle();
+        if (staffData?.name) assignedStaffName = staffData.name;
+      } catch (_) {}
+    }
+
     // Prefer display_name, fall back to table_number
     const tableNumber = tableData?.display_name ?? tableData?.table_number ?? 'N/A';
 
@@ -422,7 +485,9 @@ async function _dispatchOrderAssignedEvent(
       tableId: order.table_id,
       tableNumber,
       tenantId,
-      assignedStaffId,       // null = broadcast to all (manager fallback)
+      branchId,
+      assignedStaffId,       // null = unassigned (broadcast to all to claim)
+      assignedStaffName,
       itemCount: itemsToUse.length,
       totalAmountMinor,
       orderTime: order.created_at,
@@ -430,9 +495,24 @@ async function _dispatchOrderAssignedEvent(
       items: itemsToUse.map((i: any) => ({
         name: i.name ?? i.item_name_snapshot ?? i.product_name ?? 'Item',
         quantity: i.qty ?? i.quantity ?? 1,
+        note: i.note ?? i.item_notes ?? null,
       })),
+      notes: order.order_notes || null,
+      orderNotes: order.order_notes || null,
+      alertType: 'NEW_ORDER_ALERT',
+      eventType: 'NEW_ORDER_ALERT',
     };
 
+    // Broadcast NEW_ORDER_ALERT to all online staff in the branch on ORDER_ALERTS
+    WebSocketManager.getInstance().broadcastToBranch(
+      branchId,
+      'ORDERING',
+      'ORDER_ALERTS',
+      'NEW_ORDER_ALERT',
+      alertPayload
+    );
+
+    // Also dispatch on ALERT_STREAM for backward compatibility
     WebSocketManager.getInstance().broadcastToBranch(
       branchId,
       'ORDERING',
@@ -591,6 +671,8 @@ export async function transitionOrderStatus(params: {
         itemCount: alertItems.length,
         totalAmountMinor,
         items: alertItems,
+        notes: snapshotOrder?.order_notes || order.order_notes || null,
+        orderNotes: snapshotOrder?.order_notes || order.order_notes || null,
       };
     } else if (targetStatus === 'cancelled') {
       alertType = 'ORDER_CANCELLED';
@@ -608,6 +690,8 @@ export async function transitionOrderStatus(params: {
         itemCount: alertItems.length,
         totalAmountMinor,
         items: alertItems,
+        notes: snapshotOrder?.order_notes || order.order_notes || null,
+        orderNotes: snapshotOrder?.order_notes || order.order_notes || null,
       };
     } else {
       alertType = targetStatus === 'ready' ? 'ORDER_READY_FOR_PICKUP' : 'ORDER_PREPARING';
@@ -646,6 +730,8 @@ export async function transitionOrderStatus(params: {
         itemCount: alertItems.length,
         totalAmountMinor,
         items: alertItems,
+        notes: snapshotOrder?.order_notes || order.order_notes || null,
+        orderNotes: snapshotOrder?.order_notes || order.order_notes || null,
       };
     }
 
@@ -667,6 +753,15 @@ export async function transitionOrderStatus(params: {
     );
   }
 
+  // ── Broadcast order_update to POS and Staff terminals on OPERATIONAL_STREAM ──
+  WebSocketManager.getInstance().broadcastToBranch(
+    updatedOrder.branch_id,
+    'ORDERING',
+    'OPERATIONAL_STREAM',
+    'order_update',
+    updatedOrder
+  );
+
   return updatedOrder;
 }
 
@@ -681,7 +776,7 @@ export async function getOrder(tenantId: string, id: string): Promise<ordersRepo
 export async function listBranchOrders(
   tenantId: string,
   branchId: string,
-  filters?: { status?: ordersRepo.OrderStatus }
+  filters?: { status?: ordersRepo.OrderStatus; activeOnly?: boolean; tableId?: string }
 ): Promise<ordersRepo.Order[]> {
   return ordersRepo.listOrdersByBranch(tenantId, branchId, filters);
 }
@@ -826,17 +921,22 @@ export async function getPendingOrdersForStaff(
   branchId: string,
   staffId: string
 ): Promise<ordersRepo.Order[]> {
+  // Fetch pending orders in this branch.
+  // Include orders where the table is unassigned (broadcast to all branch staff) OR assigned specifically to this staff member.
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*, tables!inner(assigned_waiter_id)')
+    .select('*, tables(table_number, assigned_staff_id)')
     .eq('tenant_id', tenantId)
     .eq('branch_id', branchId)
     .eq('status', 'pending')
-    .eq('tables.assigned_staff_id', staffId)
     .order('created_at', { ascending: true });
 
-  if (error) return [];
-  return (data ?? []) as ordersRepo.Order[];
+  if (error || !data) return [];
+
+  return (data as any[]).filter((o: any) => {
+    const assigned = o.tables?.assigned_staff_id;
+    return !assigned || assigned === staffId;
+  }) as ordersRepo.Order[];
 }
 // ── Assign Waiter to Order/Table (Staff acceptance mutation) ─────────────
 //
@@ -924,56 +1024,43 @@ export async function assignWaiter(params: {
     throw new AppError('Order does not belong to your branch.', 403, ErrorCode.FORBIDDEN);
   }
 
-  // Waiter can only be assigned after KDS has accepted the kitchen order
-  const ASSIGNABLE_STATUSES: ordersRepo.OrderStatus[] = ['accepted', 'preparing', 'ready', 'delivered'];
+  // Waiter can be assigned for any active non-cancelled order (including pending orders upon placement)
+  const ASSIGNABLE_STATUSES: ordersRepo.OrderStatus[] = ['pending', 'accepted', 'preparing', 'ready', 'delivered'];
   if (!ASSIGNABLE_STATUSES.includes(order.status)) {
     throw new AppError(
-      `Waiter cannot be assigned — order is currently '${order.status}'. Order must be accepted by kitchen first.`,
+      `Waiter cannot be assigned — order is currently '${order.status}'.`,
       409,
       ErrorCode.CONFLICT
     );
   }
 
-  // ── 5. Atomic table assignment ──────────────────────────────────────────
-  // Use a single UPDATE statement to guarantee race-free assignment
-  const { data: updatedTables, error: updateErr, count } = await supabaseAdmin
-    .from('tables')
-    .update({
-      assigned_staff_id: staffRow.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', order.table_id)
-    .eq('tenant_id', tenantId)
-    .eq('branch_id', staffBranchId)
-    .is('assigned_staff_id', null)
-    .select('id, table_number, display_name, assigned_staff_id');
+  // ── 5. Atomic table assignment via claim_table_waiter_safely RPC ──────────
+  // Acquires Hierarchy Rank 1 table lock, enforces status='occupied' and assigned_staff_id IS NULL
+  const { data: claimResult, error: claimErr } = await supabaseAdmin.rpc('claim_table_waiter_safely', {
+    p_tenant_id: tenantId,
+    p_branch_id: staffBranchId,
+    p_table_id: order.table_id,
+    p_staff_id: staffRow.id,
+  });
 
-  if (updateErr) {
-    throw new AppError(`Assignment write failed: ${updateErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+  if (claimErr || !claimResult?.success) {
+    if (claimResult?.code === 'ASSIGNMENT_CONFLICT') {
+      throw new AppError('Assignment conflict: table is already assigned to another waiter.', 409, ErrorCode.CONFLICT);
+    }
+    if (claimResult?.code === 'TABLE_NOT_ELIGIBLE') {
+      throw new AppError(`Assignment conflict: table is not occupied (${claimResult.table_status}).`, 409, ErrorCode.CONFLICT);
+    }
+    throw new AppError(`Assignment write failed: ${claimErr?.message || claimResult?.error || 'Unknown error'}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
 
-  let tableRow = updatedTables?.[0];
+  const { data: tableRow } = await supabaseAdmin
+    .from('tables')
+    .select('id, table_number, display_name, assigned_staff_id')
+    .eq('id', order.table_id)
+    .single();
 
-  // If 0 rows updated, it was either already assigned or invalid
-  if (count === 0 || !tableRow) {
-    // Check if it's assigned to us already (idempotency fallback)
-    const { data: existingTable } = await supabaseAdmin
-      .from('tables')
-      .select('id, table_number, display_name, assigned_staff_id')
-      .eq('id', order.table_id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    if (existingTable && existingTable.assigned_staff_id === staffRow.id) {
-      // It was already assigned to us
-      tableRow = existingTable;
-    } else {
-      throw new AppError(
-        'Assignment conflict: table is already assigned or invalid. Please try again.',
-        409,
-        ErrorCode.CONFLICT
-      );
-    }
+  if (!tableRow) {
+    throw new AppError('Table record missing after assignment.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
 
   // ── 6. Rebuild table projection ────────────────────────────────────

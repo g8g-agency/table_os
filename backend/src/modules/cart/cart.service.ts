@@ -10,6 +10,7 @@ import { ErrorCode } from '../../shared/errors/error-codes';
 import * as cartRepo from './cart.repository';
 import { BranchMenuResolutionService } from '../overrides/services/branch-menu-resolution.service';
 import type { AddCartItemDto, UpdateCartItemDto, UpdateCartNotesDto, CartDetailDto } from './cart.dtos';
+import type { CartQuoteItemInput } from './cart.validators';
 
 export async function getOrCreateCart(
   tenantId: string,
@@ -138,21 +139,49 @@ export async function addCartItem(
   // 4. Calculate unit price snapshot
   const unitPrice = resolvedItem.price.price_minor;
 
-  // 5. Insert item
-  const displayOrder = (await cartRepo.listCartItems(cart.id)).length;
-  const insertedItem = await cartRepo.insertCartItem(tenantId, cart.id, {
-    menu_item_id: dto.menu_item_id,
-    item_name_snapshot: resolvedItem.name,
-    item_sku_snapshot: resolvedItem.slug ?? null,
-    unit_price_minor_snapshot: unitPrice,
-    quantity: dto.quantity,
-    item_notes: dto.item_notes,
-    display_order: displayOrder,
+  // 5. Check if an identical item already exists in the cart (same menu_item_id, notes, and exact same modifiers)
+  const existingItems = await cartRepo.listCartItems(cart.id);
+  const existingItemIds = existingItems.map((i) => i.id);
+  const existingModifiers = existingItemIds.length > 0 ? await cartRepo.listCartItemModifiers(existingItemIds) : [];
+
+  const normalizedInputNotes = (dto.item_notes || '').trim();
+  const sortedInputOptionIds = modifiersToInsert.map((m) => m.modifier_option_id).sort().join(',');
+
+  const matchingItem = existingItems.find((existing) => {
+    if (existing.menu_item_id !== dto.menu_item_id) return false;
+    const existingNotes = (existing.item_notes || '').trim();
+    if (existingNotes !== normalizedInputNotes) return false;
+
+    const itemMods = existingModifiers.filter((m) => m.cart_item_id === existing.id);
+    const sortedExistingOptionIds = itemMods.map((m) => m.modifier_option_id).sort().join(',');
+    return sortedExistingOptionIds === sortedInputOptionIds;
   });
 
-  // 6. Insert modifiers
-  if (modifiersToInsert.length > 0) {
-    await cartRepo.insertCartItemModifiers(tenantId, insertedItem.id, modifiersToInsert);
+  if (matchingItem) {
+    // Merge: increment quantity on existing item
+    const newQty = matchingItem.quantity + dto.quantity;
+    await cartRepo.updateCartItem(tenantId, matchingItem.id, {
+      quantity: newQty,
+      item_notes: matchingItem.item_notes ?? undefined,
+      version_num: matchingItem.version_num,
+    });
+  } else {
+    // Insert new item
+    const displayOrder = existingItems.length;
+    const insertedItem = await cartRepo.insertCartItem(tenantId, cart.id, {
+      menu_item_id: dto.menu_item_id,
+      item_name_snapshot: resolvedItem.name,
+      item_sku_snapshot: resolvedItem.slug ?? null,
+      unit_price_minor_snapshot: unitPrice,
+      quantity: dto.quantity,
+      item_notes: dto.item_notes,
+      display_order: displayOrder,
+    });
+
+    // Insert modifiers
+    if (modifiersToInsert.length > 0) {
+      await cartRepo.insertCartItemModifiers(tenantId, insertedItem.id, modifiersToInsert);
+    }
   }
 
   // Reload and return full cart detail
@@ -239,11 +268,33 @@ export async function updateCartNotes(
   return getCartDetail(tenantId, sessionId);
 }
 
-async function _calculateCartTotals(
+export async function clearCart(
+  tenantId: string,
+  sessionId: string,
+  expectedCartRevision?: number,
+): Promise<CartDetailDto> {
+  const cart = await cartRepo.findActiveCartBySession(tenantId, sessionId);
+  if (!cart) {
+    throw new AppError('No active cart found for this session', 404, ErrorCode.NOT_FOUND);
+  }
+
+  if (expectedCartRevision !== undefined && cart.version_num !== expectedCartRevision) {
+    throw new AppError('STALE_RUNTIME_STATE: Cart was modified since your last known revision', 409, ErrorCode.CONFLICT);
+  }
+
+  if (cart.status !== 'open') {
+    throw new AppError(`Cannot modify cart in status '${cart.status}'`, 422, ErrorCode.VALIDATION_ERROR);
+  }
+
+  await cartRepo.clearCart(cart.id);
+
+  return getCartDetail(tenantId, sessionId);
+}
+
+export async function calculateCartQuote(
   tenantId: string,
   branchId: string,
-  items: any[],
-  modifiers: any[]
+  items: CartQuoteItemInput[]
 ): Promise<CartDetailDto['totals']> {
   if (items.length === 0) {
     return {
@@ -275,24 +326,20 @@ async function _calculateCartTotals(
 
   for (const item of items) {
     const liveItem = menuItemsMap.get(item.menu_item_id);
-    // If not visible, we skip in cart calculation, or fallback to snapshot price
-    const liveUnitPrice = liveItem && liveItem.is_visible ? liveItem.price.price_minor : Number(item.unit_price_minor_snapshot);
+    if (!liveItem || !liveItem.is_visible) {
+      continue;
+    }
+    const liveUnitPrice = liveItem.price.price_minor;
 
-    const itemModifiers = modifiers.filter((m) => m.cart_item_id === item.id);
     let itemModifiersTotal = 0;
-
-    for (const mod of itemModifiers) {
-      let modPrice = Number(mod.price_delta_minor_snapshot);
-      if (liveItem) {
-        const group = liveItem.modifier_groups.find((g: any) => g.id === mod.modifier_group_id);
-        if (group) {
-          const option = group.options.find((o: any) => o.id === mod.modifier_option_id);
-          if (option) {
-            modPrice = Number(option.price_delta_minor);
-          }
+    for (const mod of item.modifiers ?? []) {
+      const group = liveItem.modifier_groups?.find((g: any) => g.id === mod.modifier_group_id);
+      if (group) {
+        const option = group.options?.find((o: any) => o.id === mod.modifier_option_id);
+        if (option) {
+          itemModifiersTotal += Number(option.price_delta_minor || 0);
         }
       }
-      itemModifiersTotal += modPrice;
     }
 
     const itemLineTotal = (liveUnitPrice + itemModifiersTotal) * item.quantity;
@@ -375,4 +422,137 @@ async function _calculateCartTotals(
     total_tax_minor: calculatedTaxTotal,
     grand_total_minor: calculatedGrandTotal,
   };
+}
+
+async function _calculateCartTotals(
+  tenantId: string,
+  branchId: string,
+  items: any[],
+  modifiers: any[]
+): Promise<CartDetailDto['totals']> {
+  if (items.length === 0) {
+    return {
+      subtotal_minor: 0,
+      discount_minor: 0,
+      service_charge_minor: 0,
+      tax_breakdown: [],
+      total_tax_minor: 0,
+      grand_total_minor: 0,
+    };
+  }
+
+  const quoteItems: CartQuoteItemInput[] = items.map((item) => ({
+    menu_item_id: item.menu_item_id,
+    quantity: item.quantity,
+    modifiers: modifiers
+      .filter((m) => m.cart_item_id === item.id)
+      .map((m) => ({
+        modifier_group_id: m.modifier_group_id,
+        modifier_option_id: m.modifier_option_id,
+      })),
+  }));
+
+  return calculateCartQuote(tenantId, branchId, quoteItems);
+}
+
+export async function addCartItemsBatch(
+  tenantId: string,
+  sessionId: string,
+  items: Array<{
+    menu_item_id: string;
+    quantity: number;
+    item_notes?: string;
+    modifiers?: Array<{ modifier_group_id: string; modifier_option_id: string }>;
+  }>,
+): Promise<CartDetailDto> {
+  const cart = await cartRepo.findActiveCartBySession(tenantId, sessionId);
+  if (!cart) {
+    throw new AppError('No active cart found for this session', 404, ErrorCode.NOT_FOUND);
+  }
+
+  if (cart.status !== 'open') {
+    throw new AppError(`Cannot modify cart in status '${cart.status}'`, 422, ErrorCode.VALIDATION_ERROR);
+  }
+
+  // 1. Resolve menu ONCE for the whole batch
+  const resolutionService = new BranchMenuResolutionService(supabaseAdmin);
+  const effectiveMenu = await resolutionService.resolveEffectiveMenu({
+    tenantId,
+    branchId: cart.branch_id,
+    timestamp: new Date().toISOString(),
+  });
+
+  const menuItemsMap = new Map<string, any>();
+  for (const cat of effectiveMenu.categories) {
+    for (const it of cat.items) {
+      menuItemsMap.set(it.id, { ...it, categoryName: cat.name });
+    }
+  }
+
+  // 2. Clear existing items
+  await cartRepo.clearCart(cart.id);
+
+  // 3. Validate and insert all items
+  let displayOrder = 0;
+  for (const inputItem of items) {
+    const resolvedItem = menuItemsMap.get(inputItem.menu_item_id);
+    if (!resolvedItem || !resolvedItem.is_visible) {
+      throw new AppError(`Menu item not found or unavailable: ${inputItem.menu_item_id}`, 404, ErrorCode.NOT_FOUND);
+    }
+
+    const inputModifiers = inputItem.modifiers ?? [];
+    const modifiersToInsert: any[] = [];
+
+    for (const inputMod of inputModifiers) {
+      const group = resolvedItem.modifier_groups?.find((g: any) => g.id === inputMod.modifier_group_id);
+      if (!group || !group.is_available) {
+        throw new AppError(`Modifier group unavailable: ${inputMod.modifier_group_id}`, 422, ErrorCode.VALIDATION_ERROR);
+      }
+      const option = group.options?.find((o: any) => o.id === inputMod.modifier_option_id);
+      if (!option || !option.is_available) {
+        throw new AppError(`Modifier option unavailable: ${inputMod.modifier_option_id}`, 422, ErrorCode.VALIDATION_ERROR);
+      }
+      modifiersToInsert.push({
+        modifier_group_id: group.id,
+        modifier_option_id: option.id,
+        modifier_group_name_snapshot: group.name,
+        modifier_option_name_snapshot: option.name,
+        price_delta_minor_snapshot: option.price_delta_minor,
+      });
+    }
+
+    // Min/max validation
+    if (resolvedItem.modifier_groups) {
+      for (const group of resolvedItem.modifier_groups) {
+        if (!group.is_available) continue;
+        const count = inputModifiers.filter((m) => m.modifier_group_id === group.id).length;
+        if (group.is_required && count === 0) {
+          throw new AppError(`Modifier group '${group.name}' is required`, 422, ErrorCode.VALIDATION_ERROR);
+        }
+        if (count < group.min_select) {
+          throw new AppError(`Select at least ${group.min_select} option(s) for '${group.name}'`, 422, ErrorCode.VALIDATION_ERROR);
+        }
+        if (count > group.max_select) {
+          throw new AppError(`Select at most ${group.max_select} option(s) for '${group.name}'`, 422, ErrorCode.VALIDATION_ERROR);
+        }
+      }
+    }
+
+    const unitPrice = resolvedItem.price.price_minor;
+    const insertedItem = await cartRepo.insertCartItem(tenantId, cart.id, {
+      menu_item_id: inputItem.menu_item_id,
+      item_name_snapshot: resolvedItem.name,
+      item_sku_snapshot: resolvedItem.slug ?? null,
+      unit_price_minor_snapshot: unitPrice,
+      quantity: inputItem.quantity,
+      item_notes: inputItem.item_notes,
+      display_order: displayOrder++,
+    });
+
+    if (modifiersToInsert.length > 0) {
+      await cartRepo.insertCartItemModifiers(tenantId, insertedItem.id, modifiersToInsert);
+    }
+  }
+
+  return getCartDetail(tenantId, sessionId);
 }

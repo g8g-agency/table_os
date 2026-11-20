@@ -371,6 +371,43 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
         flex: 1, 
         overflowY: 'auto' 
       }}>
+        {(() => {
+          const orderNotes = (order.notes || order.order_notes || order.orderNotes || '').trim();
+          if (!orderNotes) return null;
+          const isAllergy = /allergy|allergic|peanut|nut|gluten|celiac|dairy|vegan|vegetarian|egg|seafood|shellfish|sesame|soy/i.test(orderNotes);
+          return (
+            <div style={{
+              background: isAllergy ? '#FEF2F2' : '#FFFBEB',
+              border: `1.5px solid ${isAllergy ? '#EF4444' : '#FDE68A'}`,
+              borderLeft: `5px solid ${isAllergy ? '#DC2626' : '#D97706'}`,
+              borderRadius: '8px',
+              padding: '10px 12px',
+              marginBottom: '6px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                <span style={{ fontSize: '14px' }}>{isAllergy ? '⚠️' : '📝'}</span>
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  color: isAllergy ? '#B91C1C' : '#92400E',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}>
+                  {isAllergy ? 'ALLERGY / DIETARY NOTICE' : 'Kitchen Instructions'}
+                </span>
+              </div>
+              <p style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                color: isAllergy ? '#991B1B' : '#78350F',
+                margin: 0,
+                lineHeight: 1.4,
+              }}>
+                {orderNotes}
+              </p>
+            </div>
+          );
+        })()}
         {items.length === 0 && (
           <p style={{ color: '#9CA3AF', fontSize: '13px', fontStyle: 'italic', textAlign: 'center', marginTop: '24px' }}>
             No items in order
@@ -382,12 +419,12 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
           const isSelected = selectedItems.includes(itemId);
           const isRejected = item.isRejected || item.status === 'cancelled';
           const qty = item.qty || item.quantity || 1;
-          const note = item.note || item.notes || '';
+          const note = (item.note || item.notes || item.item_notes || item.special_instructions || '').trim();
           
           // Once accepted (preparing/accepted/ready/served), accepted items are ALWAYS ticked and can't be unticked
           const isItemDone = (!isPending && !isRejected) ? true : (item.done || item.status === 'completed');
           
-          const isAllergy  = note?.toLowerCase().includes('allergy');
+          const isAllergy  = /allergy|allergic|peanut|nut|gluten|celiac|dairy|vegan|vegetarian|egg|seafood|shellfish|sesame|soy/i.test(note);
 
           /* dim unselected pending items, rejected items, done cooking items */
           const rowOpacity = (isPending && !isSelected) ? 0.35
@@ -500,16 +537,28 @@ const OrderCard = ({ order, isHistory = false, setConfirmModal }) => {
 
                 {/* Allergy — danger */}
                 {isAllergy && (
-                  <p style={{
-                    fontSize:      '10px',
-                    fontWeight:    900,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.12em',
-                    color:         '#BA1A1A',
+                  <div style={{
+                    display:       'inline-flex',
+                    alignItems:    'center',
+                    gap:           '4px',
+                    padding:       '3px 8px',
+                    background:    '#FEF2F2',
+                    border:        '1px solid #FCA5A5',
+                    borderLeft:    '3px solid #DC2626',
+                    borderRadius:  '4px',
                     marginTop:     '6px',
                   }}>
-                    {note}
-                  </p>
+                    <span style={{ fontSize: '11px' }}>⚠️</span>
+                    <span style={{
+                      fontSize:      '10px',
+                      fontWeight:    900,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color:         '#B91C1C',
+                    }}>
+                      ALLERGY: {note}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>

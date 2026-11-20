@@ -47,6 +47,7 @@ import { errorMiddleware } from './middleware/error.middleware';
 import { loggingMiddleware } from './middleware/logging.middleware';
 import { devBroadcastRouter } from './modules/transport/dev-broadcast.router';
 import { tableSessionsRouter } from './modules/tables/table-sessions.router';
+import { supabaseAdmin } from './config/supabase';
 
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
@@ -72,65 +73,60 @@ export function createApp(): express.Application {
   });
   app.use(globalLimiter);
 
-  // ============================================================
-  // TEMPORARY DIAGNOSTIC LOGGING FOR MENU ROUTES
-  // ============================================================
-  app.use((req, _res, next) => {
-    if (
-      req.path.includes('/categories') || 
-      req.path.includes('/items') || 
-      req.path.includes('/menu-availability')
-    ) {
-      console.log(`\n\n[DIAGNOSTIC] INCOMING REQUEST -> ${req.method} ${req.originalUrl}`);
-      console.log(`[DIAGNOSTIC] HEADERS:`, req.headers);
-      console.log(`[DIAGNOSTIC] ORIGIN:`, req.headers.origin);
-    }
-    next();
-  });
 
   // ─── CORS ──────────────────────────────────────────────────
-  app.use(
-    cors({
-      origin: (requestOrigin, callback) => {
-        if (!requestOrigin) return callback(null, true);
-        if (
-          requestOrigin.startsWith('http://localhost:') ||
-          requestOrigin.startsWith('http://127.0.0.1:') ||
-          requestOrigin.startsWith('http://192.168.') ||
-          requestOrigin.startsWith('http://10.') ||
-          requestOrigin.startsWith('http://30.')
-        ) {
-          return callback(null, true);
-        }
-        if (corsOrigins.includes(requestOrigin)) {
-          return callback(null, true);
-        }
-        return callback(new ForbiddenError('Not allowed by CORS'));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Device-Fingerprint',
-        'X-Device-Session-Id',
-        'X-Forwarded-For',
-        'X-QR-Session-Token',
-        'X-Retry-Count',
-        'x-request-id',
-        'Idempotency-Key',
-        'X-Idempotency-Key',
-        'X-Branch-Id',
-        'X-Terminal-Id',
-        'X-Tenant-Id',
-      ],
-    })
-  );
+  const corsOptions: cors.CorsOptions = {
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin) return callback(null, true);
+      if (
+        requestOrigin.startsWith('http://localhost:') ||
+        requestOrigin.startsWith('http://127.0.0.1:') ||
+        requestOrigin.startsWith('http://192.168.') ||
+        requestOrigin.startsWith('http://10.') ||
+        requestOrigin.startsWith('http://30.')
+      ) {
+        return callback(null, true);
+      }
+      // Allow project Render deployments (e.g. table-os.onrender.com, table-os-1.onrender.com)
+      // and official Orderlii domains while rejecting arbitrary external origins.
+      if (
+        /^https:\/\/[a-zA-Z0-9-]+\.onrender\.com$/.test(requestOrigin) ||
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlyy\.com$/.test(requestOrigin) ||
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlli\.com$/.test(requestOrigin) ||
+        /^https:\/\/(?:[a-zA-Z0-9-]+\.)*orderlii\.com$/.test(requestOrigin)
+      ) {
+        return callback(null, true);
+      }
+      if (corsOrigins.includes(requestOrigin)) {
+        return callback(null, true);
+      }
+      return callback(new ForbiddenError('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Device-Fingerprint',
+      'X-Device-Session-Id',
+      'X-Forwarded-For',
+      'X-QR-Session-Token',
+      'X-Retry-Count',
+      'x-request-id',
+      'Idempotency-Key',
+      'X-Idempotency-Key',
+      'X-Branch-Id',
+      'X-Terminal-Id',
+      'X-Tenant-Id',
+    ],
+  };
+
+  app.use(cors(corsOptions));
 
   // ─── OPTIONS Preflight (must be before all routes) ─────────────────────
   // Required so browser preflights for credentialed cross-origin requests
-  // receive the-correct CORS headers before touching any authenticated route.
-  app.options('*', cors());
+  // receive the correct CORS headers before touching any authenticated route.
+  app.options('*', cors(corsOptions));
 
   // ─── Observability Context Propagation ─────────────────────
   app.use(ObservabilityService.observabilityMiddleware);
@@ -139,7 +135,12 @@ export function createApp(): express.Application {
   app.use(loggingMiddleware);
 
   // ─── Body parsing ──────────────────────────────────────────
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({
+    limit: '1mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // ─── Trust proxy ───────────────────────────────────────────
@@ -148,21 +149,54 @@ export function createApp(): express.Application {
   // the direct connection address when no X-Forwarded-For header is present.
   app.set('trust proxy', 1);
 
-  // ─── Health check ──────────────────────────────────────────
+  // ─── Root & Health checks ──────────────────────────────────
+  app.get('/', (_req, res) => {
+    res.status(200).json({
+      service: 'orderlli-backend',
+      status: 'ok',
+      version: '0.1.0',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.get('/health', (_req, res) => {
     res.status(200).json({
-      status: 'ok',
       service: 'orderlli-backend',
+      status: 'ok',
       env: env.NODE_ENV,
       timestamp: new Date().toISOString(),
     });
   });
 
-  // ─── Ready check ───────────────────────────────────────────
-  app.get('/ready', (_req, res) => {
-    // Check DB or other critical services if needed here
-    res.status(200).json({ status: 'ready' });
-  });
+  const readyHandler = async (_req: express.Request, res: express.Response) => {
+    try {
+      const { error } = await supabaseAdmin.from('tenants').select('id').limit(1);
+      if (error) {
+        return res.status(503).json({
+          service: 'orderlli-backend',
+          status: 'degraded',
+          database: 'disconnected',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return res.status(200).json({
+        service: 'orderlli-backend',
+        status: 'ready',
+        database: 'connected',
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      return res.status(503).json({
+        service: 'orderlli-backend',
+        status: 'degraded',
+        database: 'disconnected',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  };
+
+  app.get('/health/ready', readyHandler);
+  app.get('/ready', readyHandler);
 
   // ─── Version check ─────────────────────────────────────────
   app.get('/version', (_req, res) => {

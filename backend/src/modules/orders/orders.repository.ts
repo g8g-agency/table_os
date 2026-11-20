@@ -56,6 +56,31 @@ export interface Order {
   review_skipped_at?: string | null;
   review_expires_at?: string | null;
   customer_payment_intent?: 'cash' | 'upi' | null;
+  table_number?: string;
+  items?: OrderItemDetail[];
+  total_amount?: number;
+}
+
+export interface OrderItemDetail {
+  id: string;
+  menu_item_id: string;
+  name: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+}
+
+export interface OrderWithItems extends Order {
+  items: OrderItemDetail[];
+  total_amount: number;
+  bill_id?: string;
+  bill_number?: string;
+  subtotal_minor?: number;
+  tax_total_minor?: number;
+  discount_total_minor?: number;
+  grand_total_minor?: number;
+  amount_paid_minor?: number;
+  settlements?: any[];
 }
 
 export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'created_at' | 'updated_at'>): Promise<Order> {
@@ -92,7 +117,7 @@ export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'c
   return data as Order;
 }
 
-export async function getOrderById(tenantId: string, id: string): Promise<Order | null> {
+export async function getOrderById(tenantId: string, id: string): Promise<OrderWithItems | null> {
   let query = supabaseAdmin
     .from('orders')
     .select('*, tables(display_name, table_number), snapshot:order_snapshots!orders_order_snapshot_id_fkey(id, items:order_item_snapshots(id, menu_item_id, item_name_snapshot, quantity, unit_price_minor, line_total_minor))')
@@ -103,19 +128,41 @@ export async function getOrderById(tenantId: string, id: string): Promise<Order 
   }
 
   const { data, error } = await query.maybeSingle();
+  let resultOrder: any = data;
 
   if (error || !data) {
-    // Fallback: plain orders without the snapshot join
-    let plainQuery = supabaseAdmin.from('orders').select('*').eq('id', id);
+    // Fallback: plain orders with tables join if snapshot relation fails
+    let plainQuery = supabaseAdmin.from('orders').select('*, tables(display_name, table_number)').eq('id', id);
     if (tenantId) plainQuery = plainQuery.eq('tenant_id', tenantId);
     const { data: plain, error: plainErr } = await plainQuery.maybeSingle();
     if (plainErr) throw new AppError(`Failed to fetch order: ${plainErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
-    return plain as Order | null;
+    if (!plain) return null;
+
+    const { data: directItems } = await supabaseAdmin
+      .from('order_items')
+      .select('id, menu_item_id, name, qty, unit_price')
+      .eq('order_id', id);
+
+    const fallbackItems = (directItems || []).map((i: any) => ({
+      id: i.id || '',
+      menu_item_id: i.menu_item_id || '',
+      name: i.name,
+      qty: i.qty || 1,
+      unit_price: Number(i.unit_price || 0),
+      line_total: Number(i.unit_price || 0) * (i.qty || 1),
+    }));
+
+    const tableData = (plain as any).tables;
+    const tableLabel = tableData?.display_name || (tableData?.table_number ? `Table ${tableData.table_number}` : 'Table');
+    (plain as any).table_number = tableLabel;
+    plain.items = fallbackItems;
+    plain.total_amount = fallbackItems.reduce((sum: number, i: any) => sum + (i.line_total || 0), 0);
+    resultOrder = plain;
   }
 
   if (data) {
     const snapItems: any[] = data.snapshot?.items || [];
-    const items = snapItems.map((i: any) => ({
+    let items = snapItems.map((i: any) => ({
       id: i.id || '',
       menu_item_id: i.menu_item_id || '',
       name: i.item_name_snapshot,
@@ -123,7 +170,25 @@ export async function getOrderById(tenantId: string, id: string): Promise<Order 
       unit_price: (i.unit_price_minor || 0) / 100,
       line_total: (i.line_total_minor || 0) / 100,
     }));
-    const total_amount = snapItems.reduce((sum: number, i: any) => sum + (i.line_total_minor || 0), 0) / 100;
+
+    if (items.length === 0) {
+      const { data: directItems } = await supabaseAdmin
+        .from('order_items')
+        .select('id, menu_item_id, name, qty, unit_price')
+        .eq('order_id', id);
+      if (directItems && directItems.length > 0) {
+        items = directItems.map((i: any) => ({
+          id: i.id || '',
+          menu_item_id: i.menu_item_id || '',
+          name: i.name,
+          qty: i.qty || 1,
+          unit_price: Number(i.unit_price || 0),
+          line_total: Number(i.unit_price || 0) * (i.qty || 1),
+        }));
+      }
+    }
+
+    const total_amount = items.reduce((sum: number, i: any) => sum + (i.line_total || 0), 0);
     
     // Resolve table_number label
     const tableData = (data as any).tables;
@@ -135,7 +200,33 @@ export async function getOrderById(tenantId: string, id: string): Promise<Order 
     delete data.snapshot;
   }
 
-  return data as Order | null;
+  const result = resultOrder as any;
+  if (result) {
+    try {
+      const { data: billOrder } = await supabaseAdmin
+        .from('bill_orders')
+        .select('bills!inner(id, bill_number, subtotal_minor, tax_total_minor, discount_total_minor, grand_total_minor, amount_paid_minor, settlements(*))')
+        .eq('order_id', id)
+        .neq('bills.status', 'VOIDED')
+        .maybeSingle();
+
+      if (billOrder && (billOrder as any).bills) {
+        const b = (billOrder as any).bills;
+        result.bill_id = b.id;
+        result.bill_number = b.bill_number;
+        result.subtotal_minor = b.subtotal_minor;
+        result.tax_total_minor = b.tax_total_minor;
+        result.discount_total_minor = b.discount_total_minor;
+        result.grand_total_minor = b.grand_total_minor;
+        result.amount_paid_minor = b.amount_paid_minor;
+        result.settlements = b.settlements || [];
+      }
+    } catch (_) {
+      // Non-fatal if bill lookup fails
+    }
+  }
+
+  return result as OrderWithItems | null;
 }
 
 export async function getOrderByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<Order | null> {
@@ -156,8 +247,8 @@ export async function getOrderByIdempotencyKey(tenantId: string, idempotencyKey:
 export async function listOrdersByBranch(
   tenantId: string,
   branchId: string,
-  filters?: { status?: OrderStatus }
-): Promise<Order[]> {
+  filters?: { status?: OrderStatus; activeOnly?: boolean; tableId?: string }
+): Promise<OrderWithItems[]> {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -170,16 +261,32 @@ export async function listOrdersByBranch(
 
   if (filters?.status) {
     query = query.eq('status', filters.status);
+  } else if (filters?.activeOnly) {
+    // Active kitchen/table orders excluding terminal states (delivered, completed, cancelled, sync_conflict)
+    query = query.in('status', ['pending', 'accepted', 'preparing', 'ready']);
+  }
+
+  if (filters?.tableId) {
+    query = query.eq('table_id', filters.tableId);
   }
 
   const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
 
   if (error) {
     // Fallback: plain orders without items
-    const { data: plain } = await supabaseAdmin
+    let plainQuery = supabaseAdmin
       .from('orders').select('*').eq('tenant_id', tenantId).eq('branch_id', branchId)
-      .gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(200);
-    return (plain || []).map((o: any) => ({ ...o, items: [], total_amount: 0 })) as Order[];
+      .gte('created_at', sevenDaysAgo.toISOString());
+    if (filters?.status) {
+      plainQuery = plainQuery.eq('status', filters.status);
+    } else if (filters?.activeOnly) {
+      plainQuery = plainQuery.in('status', ['pending', 'accepted', 'preparing', 'ready']);
+    }
+    if (filters?.tableId) {
+      plainQuery = plainQuery.eq('table_id', filters.tableId);
+    }
+    const { data: plain } = await plainQuery.order('created_at', { ascending: false }).limit(200);
+    return (plain || []).map((o: any) => ({ ...o, items: [], total_amount: 0 })) as OrderWithItems[];
   }
 
   const mappedData = data.map((order: any) => {
@@ -196,7 +303,39 @@ export async function listOrdersByBranch(
     return { ...order, items, total_amount, snapshot: undefined };
   });
 
-  return mappedData as Order[];
+  // Fallback to order_items table for any orders that did not have snapshot items
+  const ordersMissingItems = mappedData.filter((o: any) => o.items.length === 0);
+  if (ordersMissingItems.length > 0) {
+    const orderIds = ordersMissingItems.map((o: any) => o.id);
+    const { data: directItems } = await supabaseAdmin
+      .from('order_items')
+      .select('id, order_id, menu_item_id, name, quantity, unit_price, total_price')
+      .in('order_id', orderIds);
+
+    if (directItems && directItems.length > 0) {
+      const itemsByOrderId = new Map<string, any[]>();
+      for (const item of directItems) {
+        const list = itemsByOrderId.get(item.order_id) || [];
+        list.push({
+          id: item.id || '',
+          menu_item_id: item.menu_item_id || '',
+          name: item.name,
+          qty: item.quantity,
+          unit_price: Number(item.unit_price || 0),
+          line_total: Number(item.total_price || 0),
+        });
+        itemsByOrderId.set(item.order_id, list);
+      }
+      for (const order of mappedData) {
+        if (order.items.length === 0 && itemsByOrderId.has(order.id)) {
+          order.items = itemsByOrderId.get(order.id)!;
+          order.total_amount = order.items.reduce((sum: number, i: any) => sum + (i.line_total || 0), 0);
+        }
+      }
+    }
+  }
+
+  return mappedData as OrderWithItems[];
 }
 
 export async function updateOrderStatus(

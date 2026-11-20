@@ -12,6 +12,7 @@ import type { BillDTO, BillStatus } from './billing-runtime.types';
 import { ReceiptSnapshotService } from './receipt-snapshot.service';
 import * as ordersRepo from '../orders/orders.repository';
 import { transitionOrderStatus } from '../orders/orders.service';
+import { logger } from '../../shared/utils/logger';
 
 const VALID_TRANSITIONS: Record<BillStatus, BillStatus[]> = {
   UNPAID: ['PARTIALLY_PAID', 'PAID', 'VOIDED'],
@@ -40,131 +41,95 @@ export class SettlementLifecycleService {
     const { tenantId, billId, paymentIntentId, paymentMethod, amountMinor, gatewayRef, gatewayPayload, processedBy } = params;
 
     try {
-      // 1. Fetch and Lock the active bill
-      const { data: bill, error: fetchErr } = await supabaseAdmin
+      // 1. Execute atomic settlement under strict Lock Hierarchy (Rank 1 tables -> Rank 2 table_sessions -> Rank 3 guest_sessions -> Rank 4 bills)
+      const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc('settle_bill_and_vacate_safely', {
+        p_tenant_id: tenantId,
+        p_bill_id: billId,
+        p_amount_minor: amountMinor,
+        p_payment_method: paymentMethod,
+        p_payment_intent_id: paymentIntentId || null,
+        p_gateway_ref: gatewayRef || null,
+        p_gateway_payload: gatewayPayload || null,
+        p_processed_by: processedBy || null,
+      });
+
+      if (settleErr || !settleResult?.success) {
+        const errCode = settleResult?.code;
+        const errMsg = settleResult?.error || settleErr?.message || 'Unknown error';
+        if (errCode === 'GATEWAY_REF_ALREADY_USED' || errCode === 'PAYMENT_INTENT_ALREADY_USED') {
+          throw new AppError(errMsg, 409, ErrorCode.CONFLICT);
+        }
+        if (
+          errCode === 'BILL_ALREADY_SETTLED' ||
+          errCode === 'OVERPAYMENT_NOT_PERMITTED' ||
+          errCode === 'OVERPAYMENT_EXCEEDED' ||
+          errCode === 'INVALID_AMOUNT' ||
+          errCode === 'INVALID_PAYMENT_METHOD' ||
+          errCode === 'UNSUPPORTED_PAYMENT_METHOD' ||
+          errCode === 'GATEWAY_SETTLEMENT_DEFERRED'
+        ) {
+          throw new AppError(errMsg, 400, ErrorCode.VALIDATION_ERROR);
+        }
+        if (errCode === 'BILL_NOT_FOUND' || errCode === 'SESSION_NOT_FOUND') {
+          throw new AppError(errMsg, 404, ErrorCode.NOT_FOUND);
+        }
+        throw new AppError(`Settlement write failed: ${errMsg}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      }
+
+      // Reload updated bill
+      const { data: updatedBill, error: billErr } = await supabaseAdmin
         .from('bills')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('id', billId)
         .single();
 
-      if (fetchErr || !bill) {
-        throw new AppError('Bill check failed: record not found.', 404, ErrorCode.NOT_FOUND);
+      if (billErr || !updatedBill) {
+        throw new AppError('Failed to reload updated bill record.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
       }
 
-      // Check current state bounds
-      if (['PAID', 'VOIDED', 'REFUNDED'].includes(bill.status)) {
-        throw new AppError(`Cannot apply payment on bill in '${bill.status}' status.`, 400, ErrorCode.VALIDATION_ERROR);
-      }
+      const settlementId = settleResult.settlement_id;
+      const targetStatus = updatedBill.status as BillStatus;
+      const grandTotal = Number(updatedBill.grand_total_minor);
 
-      // Calculate new paid amount and determine target status
-      const currentPaid = Number(bill.amount_paid_minor);
-      const grandTotal = Number(bill.grand_total_minor);
-      const newPaid = currentPaid + amountMinor;
-
-      if (newPaid > grandTotal) {
-        throw new AppError('Cumulative payments cannot exceed bill grand total.', 400, ErrorCode.VALIDATION_ERROR);
-      }
-
-      const targetStatus: BillStatus = newPaid >= grandTotal ? 'PAID' : 'PARTIALLY_PAID';
-
-      // 2. Validate FSM State Transition matrix
-      this.validateTransition(bill.status as BillStatus, targetStatus);
-
-      // 3. Perform atomic state update under OCC protection
-      const { data: updatedBill, error: updateErr } = await supabaseAdmin
-        .from('bills')
-        .update({
-          amount_paid_minor: newPaid,
-          status: targetStatus,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('tenant_id', tenantId)
-        .eq('id', billId)
-        .eq('version_num', bill.version_num)
-        .select()
-        .single();
-
-      if (updateErr || !updatedBill) {
-        if ((updateErr && updateErr.code === 'PGRST116') || !updatedBill) {
-          throw new AppError('OCC Lock Mismatch: Bill was updated concurrently. Reload and retry.', 409, ErrorCode.CONFLICT);
-        }
-        throw new AppError(`Failed to update bill totals: ${updateErr ? updateErr.message : 'Unknown error'}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
-      }
-
-      // 4. Create authoritative settlements and payment transaction log entries
-      const { data: settlement, error: setErr } = await supabaseAdmin
-        .from('settlements')
-        .insert({
-          tenant_id: tenantId,
-          branch_id: bill.branch_id,
-          bill_id: billId,
-          payment_intent_id: paymentIntentId,
-          amount_minor: amountMinor,
-          currency_code: bill.currency_code,
-          processed_by: processedBy,
-        })
-        .select()
-        .single();
-
-      if (setErr) {
-        throw new AppError(`Failed to create settlement transaction: ${setErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
-      }
-
-      const { error: txErr } = await supabaseAdmin
-        .from('payment_transactions')
-        .insert({
-          tenant_id: tenantId,
-          branch_id: bill.branch_id,
-          settlement_id: settlement.id,
-          payment_method: paymentMethod,
-          amount_minor: amountMinor,
-          currency_code: bill.currency_code,
-          gateway_ref: gatewayRef || null,
-          gateway_payload: gatewayPayload || null,
-          status: 'completed',
-        });
-
-      if (txErr) {
-        throw new AppError(`Failed to record append-only payment transaction: ${txErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
-      }
-
-      // 5. Emit PAYMENT_CAPTURED event
+      // 2. Emit PAYMENT_CAPTURED event
       await supabaseAdmin.rpc('log_financial_event', {
         p_tenant_id: tenantId,
-        p_branch_id: bill.branch_id,
+        p_branch_id: updatedBill.branch_id,
         p_event_type: 'PAYMENT_CAPTURED',
-        p_aggregate_id: settlement.id,
+        p_aggregate_id: settlementId,
         p_aggregate_type: 'settlement',
         p_payload: {
-          settlementId: settlement.id,
+          settlementId,
           billId,
           amountMinor,
           paymentMethod,
         },
       });
 
-      // 6. Action-Completed Sync Triggers
+      // 3. Action-Completed Sync Triggers
       if (targetStatus === 'PAID') {
         // A. Freeze invoice snapshot immediately (Audit-safe immutable snapshot rule)
-        await ReceiptSnapshotService.freezeReceipt(tenantId, bill.branch_id, billId);
+        await ReceiptSnapshotService.freezeReceipt(tenantId, updatedBill.branch_id, billId);
 
         // B. Emit SETTLEMENT_COMPLETED event
         await supabaseAdmin.rpc('log_financial_event', {
           p_tenant_id: tenantId,
-          p_branch_id: bill.branch_id,
+          p_branch_id: updatedBill.branch_id,
           p_event_type: 'SETTLEMENT_COMPLETED',
           p_aggregate_id: billId,
           p_aggregate_type: 'bill',
           p_payload: {
             billId,
-            billNumber: bill.bill_number,
+            billNumber: updatedBill.bill_number,
             grandTotalMinor: grandTotal,
             settledAt: new Date().toISOString(),
           },
         });
 
-        // C. Sync linked parent orders to COMPLETED status
+        // C. Sync linked parent orders to COMPLETED status ONLY if they are already delivered.
+        // This strictly preserves the separation between kitchen fulfillment (PREPARING/READY/DELIVERED)
+        // and financial settlement (PAID). Kitchen orders in progress are NOT prematurely closed.
         const { data: billOrders, error: boErr } = await supabaseAdmin
           .from('bill_orders')
           .select('order_id')
@@ -173,38 +138,85 @@ export class SettlementLifecycleService {
         if (!boErr && billOrders) {
           for (const bo of billOrders) {
             const order = await ordersRepo.getOrderById(tenantId, bo.order_id);
-            if (order && order.status !== 'completed') {
-              await transitionOrderStatus({
-                tenantId,
-                orderId: bo.order_id,
-                targetStatus: 'completed',
-                versionNum: order.version_num,
-                userId: processedBy,
-                reason: `Settled in full via unified table check payment.`,
-              });
+            if (order && order.status === 'delivered') {
+              try {
+                await transitionOrderStatus({
+                  tenantId,
+                  orderId: bo.order_id,
+                  targetStatus: 'completed',
+                  versionNum: order.version_num,
+                  userId: processedBy,
+                  reason: `Settled in full via unified table check payment.`,
+                });
+              } catch (transErr: any) {
+                logger.warn({ err: transErr.message, orderId: bo.order_id }, '[SettlementLifecycle] Order completion transition skipped');
+              }
             }
           }
         }
 
-        // D. Safely evaluate Session Closure Concurrency
-        if (bill.session_id) {
-          const { data: closureData, error: closureErr } = await supabaseAdmin.rpc('close_guest_session_safely', {
+        // D. Inspect atomic vacation result from settle_bill_and_vacate_safely
+        const closureData = settleResult.vacate_result;
+        if (settleResult.table_vacated === true && closureData && closureData.success === true) {
+          await supabaseAdmin.rpc('log_financial_event', {
             p_tenant_id: tenantId,
-            p_session_id: bill.session_id,
+            p_branch_id: updatedBill.branch_id,
+            p_event_type: 'SESSION_CLOSED_ON_SETTLEMENT',
+            p_aggregate_id: closureData.session_id,
+            p_aggregate_type: 'table_session',
+            p_payload: { tableId: closureData.table_id },
           });
 
-          if (!closureErr && closureData && closureData.success === true) {
-            // Rebuild table projection if needed, or simply log it.
-            // The active session is now closed, preventing new orders.
-            await supabaseAdmin.rpc('log_financial_event', {
-              p_tenant_id: tenantId,
-              p_branch_id: bill.branch_id,
-              p_event_type: 'SESSION_CLOSED_ON_SETTLEMENT',
-              p_aggregate_id: bill.session_id,
-              p_aggregate_type: 'guest_session',
-              p_payload: { tableId: closureData.table_id },
-            });
+          if (closureData.table_vacated === true) {
+            try {
+              const { WebSocketManager } = await import('../transport/websocket.manager');
+              WebSocketManager.getInstance().broadcastToBranch(
+                updatedBill.branch_id,
+                'SYSTEM',
+                'OPERATIONAL_STREAM',
+                'table_updated',
+                {
+                  tableId: closureData.table_id,
+                  table_id: closureData.table_id,
+                  sessionId: closureData.session_id,
+                  session_id: closureData.session_id,
+                  assignedStaffId: null,
+                  assigned_staff_id: null,
+                  status: 'VACANT',
+                  runtime_state: 'FREE',
+                  event_type: 'TABLE_VACATED',
+                }
+              );
+              WebSocketManager.getInstance().broadcastToBranch(
+                updatedBill.branch_id,
+                'SYSTEM',
+                'ALERT_STREAM',
+                'table_vacated',
+                {
+                  tableId: closureData.table_id,
+                  table_id: closureData.table_id,
+                  sessionId: closureData.session_id,
+                  session_id: closureData.session_id,
+                  event_type: 'TABLE_VACATED',
+                }
+              );
+            } catch (wsErr: any) {
+              logger.warn({ err: wsErr?.message }, '[SettlementLifecycle] Failed to broadcast table_vacated WS');
+            }
           }
+        }
+
+        if (settleResult?.code === 'SETTLEMENT_COMMITTED_VACANCY_PENDING') {
+          logger.warn(
+            {
+              billId,
+              vacateCode: settleResult.vacate_code,
+              vacateError: settleResult.vacate_error,
+              warning: settleResult.warning,
+              vacateResult: settleResult.vacate_result,
+            },
+            '[SettlementLifecycle] OPERATIONAL WARNING: Bill settled in full; automatic table vacancy requires operational attention'
+          );
         }
       }
 

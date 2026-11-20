@@ -21,6 +21,7 @@ import { SkeletonCard } from '../components/SkeletonCard'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getTableNum } from '../utils/tableNum'
 import { getQrSession, getCustomerSession } from '../utils/qrSession'
+import { itemRequiresCustomization } from '../utils/recommendationUtils'
 
 const DEMO_TENANT_ID = sessionStorage.getItem('qr_tenant_id')
   || import.meta.env.VITE_TENANT_ID
@@ -229,7 +230,7 @@ function QtyNumber({ qty }) {
 }
 
 // ── AddButton with ripple + animated stepper ──────────────────────────────────
-function AddButton({ item, onAdd, onAnimate }) {
+function AddButton({ item, onAdd, onAnimate, navigate }) {
   const cartItems = useCartStore(s => s.items)
   const [popping, setPopping] = useState(false)
   const [showPulse, setShowPulse] = useState(false)
@@ -237,9 +238,14 @@ function AddButton({ item, onAdd, onAnimate }) {
 
   const inCart = cartItems.find(i => i.id === item.id)
   const qty = inCart?.qty || 0
+  const requiresCustomization = itemRequiresCustomization(item)
 
   const handleAdd = (e) => {
     e.stopPropagation()
+    if (requiresCustomization) {
+      navigate?.(`/menu/item/${item.id}`)
+      return
+    }
     setPopping(true)
     if (qty === 0) setShowPulse(true)
     setTimeout(() => { setPopping(false); setShowPulse(false) }, 500)
@@ -258,7 +264,7 @@ function AddButton({ item, onAdd, onAnimate }) {
     e.stopPropagation()
     spawnRipple(e.currentTarget)
     onAnimate?.(e)
-    useCartStore.getState().addItem({ ...item, qty: 1 })
+    useCartStore.getState().addItem({ ...item, qty: 1, modifiers: inCart?.modifiers || [] })
   }
 
   if (!item.is_available) {
@@ -443,6 +449,7 @@ function MenuItemCard({ item, idx, navigate, handleItemAdd }) {
             item={mergedItem}
             onAdd={handleItemAdd}
             onAnimate={(e) => spawnFlyToCart(e.clientX, e.clientY, 3)}
+            navigate={navigate}
           />
         </div>
       </div>
@@ -576,6 +583,15 @@ export default function MenuHome() {
     branchId: resolvedBranchId,
     intervalMs: 15000,
   })
+
+  useEffect(() => {
+    if (resolvedTenantId) {
+      useCartStore.getState().reconcileSession({
+        tenantId: resolvedTenantId,
+        branchId: resolvedBranchId,
+      })
+    }
+  }, [resolvedTenantId, resolvedBranchId])
 
   const session = (() => { try { return JSON.parse(localStorage.getItem('customerSession') || '{}') } catch { return {} } })()
 
@@ -713,6 +729,10 @@ export default function MenuHome() {
   }
 
   const handleItemAdd = (item) => {
+    if (itemRequiresCustomization(item)) {
+      navigate(`/menu/item/${item.id}`)
+      return
+    }
     useCartStore.getState().addItem({ ...item, qty: 1, modifiers: [], note: '' })
   }
 

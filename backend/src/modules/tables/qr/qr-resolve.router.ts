@@ -7,7 +7,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { resolveQrTokenPublic } from '../services/table.service';
 
-const router = Router();
+const router: Router = Router();
 
 router.get('/resolve/:token', async (req: Request, res: Response, next: NextFunction) => {
   try {

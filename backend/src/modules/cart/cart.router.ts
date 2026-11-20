@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { requireQrSession } from '../tables/qr/qr.middleware';
-import { getCart, addItem, updateItem, removeItem, updateNotes } from './cart.controller';
+import { getCart, addItem, updateItem, removeItem, clearAllItems, updateNotes } from './cart.controller';
 import { requireMutationEnvelope } from '../../middleware/mutation.middleware';
 
 const router: Router = Router({ mergeParams: true });
@@ -18,6 +18,7 @@ router.use(requireMutationEnvelope());
 router.get('/', getCart);
 router.post('/items', addItem);
 router.patch('/items/:itemId', updateItem);
+router.delete('/items', clearAllItems);
 router.delete('/items/:itemId', removeItem);
 router.patch('/notes', updateNotes);
 

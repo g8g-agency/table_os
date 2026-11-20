@@ -512,7 +512,7 @@ export default function CheckIn({ onComplete }) {
       })
     } catch (err) {
       console.error('[CheckIn] Check-in failed:', err.message)
-      setError('Failed to check in. Please try again.')
+      setError(err.message || 'Failed to check in. Please try again.')
       setIsLoading(false)
       return
     }

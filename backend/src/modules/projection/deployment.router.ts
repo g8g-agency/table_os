@@ -10,6 +10,7 @@ import { RuntimeAutomationService } from './runtime-automation.service';
 import { supabaseAdmin } from '../../config/supabase';
 import { PaymentProviderService } from './payment-provider.service';
 import { EventLedgerService } from './event-ledger.service';
+import { env } from '../../config/env';
 
 const router: Router = Router({ mergeParams: true });
 
@@ -360,36 +361,118 @@ router.get('/capacity/metrics', authenticate, async (req: Request, res: Response
 // POST /api/v1/runtime/payments/webhook
 router.post('/payments/webhook', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const signature = req.headers['x-razorpay-signature'] || req.headers['stripe-signature'];
-    const { tenant_id, branch_id, order_id, provider, reference, amount_minor, currency_code, idempotency_key } = req.body;
+    const stripeHeader = req.headers['stripe-signature'] as string | undefined;
+    const razorpayHeader = req.headers['x-razorpay-signature'] as string | undefined;
 
-    if (!signature || !tenant_id || !branch_id || !idempotency_key) {
-      res.status(400).json({ success: false, error: 'Signature header and body parameters are required' });
+    const {
+      tenant_id,
+      branch_id,
+      order_id,
+      bill_id,
+      payment_intent_id,
+      provider: requestedProvider,
+      reference,
+      amount_minor,
+      currency_code,
+      idempotency_key,
+      event_type,
+      payment_status,
+      data,
+      payload,
+    } = req.body || {};
+
+    const provider: 'STRIPE' | 'RAZORPAY' =
+      requestedProvider?.toUpperCase() === 'RAZORPAY' || (!requestedProvider && razorpayHeader)
+        ? 'RAZORPAY'
+        : 'STRIPE';
+
+    const signature = provider === 'STRIPE' ? stripeHeader : razorpayHeader;
+    const signingSecret = provider === 'STRIPE' ? env.STRIPE_WEBHOOK_SECRET : env.RAZORPAY_WEBHOOK_SECRET;
+
+    if (!signingSecret) {
+      res.status(503).json({
+        success: false,
+        code: 'WEBHOOK_NOT_CONFIGURED',
+        error: `${provider} webhook secret is not configured on this server`,
+      });
       return;
     }
 
-    // Cryptographic verify webhook signature (mocking secret verification for development)
+    if (!signature) {
+      res.status(400).json({
+        success: false,
+        code: 'SIGNATURE_REQUIRED',
+        error: `Missing cryptographic signature header for provider ${provider}`,
+      });
+      return;
+    }
+
+    if (!tenant_id || !branch_id || !idempotency_key || !reference) {
+      res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'tenant_id, branch_id, reference, and idempotency_key are required',
+      });
+      return;
+    }
+
+    // Cryptographic signature verification over raw body buffer
+    const rawBody: Buffer | string = (req as any).rawBody || JSON.stringify(req.body);
     const verified = PaymentProviderService.verifyWebhookSignature({
-      rawBody: JSON.stringify(req.body),
-      signatureHeader: signature as string,
-      signingSecret: 'webhook_test_secret_key',
-      provider: provider || 'STRIPE',
+      rawBody,
+      signatureHeader: signature,
+      signingSecret,
+      provider,
     });
 
     if (!verified) {
-      res.status(401).json({ success: false, error: 'Invalid cryptographic signature' });
+      res.status(401).json({
+        success: false,
+        code: 'INVALID_SIGNATURE',
+        error: 'Invalid cryptographic signature',
+      });
       return;
     }
+
+    // Validate payment status / event type (fail closed on failed/unrecognized status)
+    const validStatuses = ['captured', 'succeeded', 'paid', 'COMPLETED'];
+    const currentStatus = payment_status || (event_type && event_type.includes('succeeded') ? 'succeeded' : 'captured');
+    if (!validStatuses.includes(currentStatus)) {
+      res.status(200).json({
+        success: true,
+        code: 'PAYMENT_STATUS_IGNORED',
+        message: `Webhook received for non-terminal status '${currentStatus}'; no settlement executed.`,
+      });
+      return;
+    }
+
+    // Validate amount and currency
+    const amountNum = Number(amount_minor);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      res.status(400).json({
+        success: false,
+        code: 'INVALID_AMOUNT',
+        error: 'amount_minor must be a positive number',
+      });
+      return;
+    }
+
+    const currency = (currency_code || 'INR').toUpperCase();
+    const extractedBillId = bill_id || data?.object?.metadata?.bill_id || payload?.payment?.entity?.notes?.bill_id;
+    const extractedPaymentIntentId = payment_intent_id || data?.object?.metadata?.payment_intent_id || payload?.payment?.entity?.notes?.payment_intent_id;
 
     const result = await PaymentProviderService.processProviderCallback({
       tenantId: tenant_id,
       branchId: branch_id,
       orderId: order_id,
-      provider: provider || 'STRIPE',
+      billId: extractedBillId,
+      paymentIntentId: extractedPaymentIntentId,
+      provider,
       reference,
-      amountMinor: Number(amount_minor || 0),
-      currencyCode: currency_code || 'INR',
+      amountMinor: amountNum,
+      currencyCode: currency,
       idempotencyKey: idempotency_key,
+      gatewayPayload: req.body,
     });
 
     res.status(200).json({ success: true, result });

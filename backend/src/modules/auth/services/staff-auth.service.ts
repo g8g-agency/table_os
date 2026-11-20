@@ -25,6 +25,10 @@ const STAFF_APP_ALLOWED_ROLES = new Set([
   'host',
   'manager',
   'staff',
+  'owner',
+  'restaurant_admin',
+  'cashier',
+  'admin',
 ]);
 
 export class StaffAuthService {
@@ -32,13 +36,12 @@ export class StaffAuthService {
     const { tenantId, branchId, employeeId, pin } = request;
     console.log('[StaffAuthService] loginStaff request:', { tenantId, branchId, employeeId, pin });
 
-    // 1. Find staff by employee_id (or id as fallback), branch_id, and tenant_id
+    // 1. Find staff by employee_id (or id as fallback), and tenant_id
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(employeeId);
     let query = supabaseAdmin
       .from('staff')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('branch_id', branchId)
       .eq('is_active', true);
 
     if (isUuid) {
@@ -51,6 +54,12 @@ export class StaffAuthService {
 
     if (error || !staff) {
       console.log('[StaffAuthService] Failed to find active staff member.', { error, employeeId, branchId, tenantId });
+      throw new AuthenticationError('Invalid employee ID or branch');
+    }
+
+    // If staff is restricted to a branch, verify branch matches
+    if (staff.branch_id && staff.branch_id !== branchId) {
+      console.log(`[StaffAuthService] Staff ${staff.id} branch ${staff.branch_id} does not match request branch ${branchId}`);
       throw new AuthenticationError('Invalid employee ID or branch');
     }
 
@@ -74,6 +83,7 @@ export class StaffAuthService {
     }
     let normalizedRoleStr = (staff.role || 'STAFF').toUpperCase();
     if (normalizedRoleStr === 'WAITER') normalizedRoleStr = 'SERVER';
+    if (normalizedRoleStr === 'OWNER' || normalizedRoleStr === 'ADMIN') normalizedRoleStr = 'RESTAURANT_ADMIN';
     const normalizedRole = normalizedRoleStr as Role;
 
     // Resolve base permissions based on the role

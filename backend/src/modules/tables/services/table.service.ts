@@ -6,6 +6,7 @@
 // ============================================================
 
 import { AppError } from '../../../shared/errors/AppError';
+import { logger } from '../../../shared/utils/logger';
 import { supabaseAdmin } from '../../../config/supabase';
 import * as tableRepo from '../repositories/table.repository';
 import {
@@ -240,23 +241,61 @@ export async function vacateTable(tenantId: string, tableId: string, actorId: st
   const table = await tableRepo.findTableById(tenantId, tableId);
   if (!table) throw new AppError('Table not found', 404, 'NOT_FOUND');
 
-  // 1. End all active guest sessions
-  await supabaseAdmin
-    .from('guest_sessions')
-    .update({ is_active: false, ended_at: new Date().toISOString() })
-    .eq('tenant_id', tenantId)
-    .eq('table_id', tableId)
-    .eq('is_active', true);
+  // Atomic database-level vacancy RPC with strict branch isolation and post-lock validation
+  const { data: rpcRes, error: rpcErr } = await supabaseAdmin.rpc('vacate_table_safely', {
+    p_tenant_id: tenantId,
+    p_branch_id: table.branch_id,
+    p_table_id: tableId,
+    p_staff_id: actorId,
+  });
 
-  // 2. Resolve pending waiter calls
-  await supabaseAdmin
-    .from('waiter_calls')
-    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-    .eq('tenant_id', tenantId)
-    .eq('table_id', tableId)
-    .eq('status', 'pending');
+  if (rpcErr) {
+    logger.error({ error: rpcErr.message, tableId, tenantId, branchId: table.branch_id }, '[TableService] vacate_table_safely RPC error');
+    throw new AppError(`Atomic table vacancy failed: ${rpcErr.message}`, 500, 'VACANCY_RPC_FAILED');
+  }
 
-  // 3. Emit event to rebuild projection
+  if (!rpcRes || rpcRes.success === false) {
+    const rawCode = rpcRes?.code || 'VACATE_FAILED';
+    const message = rpcRes?.error || 'Failed to vacate table';
+    const statusCode = rawCode === 'TABLE_NOT_FOUND' ? 404 : (rawCode === 'FORBIDDEN' || rawCode === 'CROSS_BRANCH_UNAUTHORIZED') ? 403 : 409;
+    throw new AppError(message, statusCode, rawCode);
+  }
+
+  const returnedStatus = rpcRes.status || 'available';
+  const returnedRuntimeState = rpcRes.runtime_state || 'FREE';
+
+  try {
+    const { WebSocketManager } = await import('../../transport/websocket.manager');
+    WebSocketManager.getInstance().broadcastToBranch(
+      table.branch_id,
+      'SYSTEM',
+      'OPERATIONAL_STREAM',
+      'table_updated',
+      {
+        tableId,
+        table_id: tableId,
+        assignedStaffId: null,
+        assigned_staff_id: null,
+        status: returnedStatus,
+        runtime_state: returnedRuntimeState,
+        event_type: 'TABLE_VACATED',
+      }
+    );
+    WebSocketManager.getInstance().broadcastToBranch(
+      table.branch_id,
+      'SYSTEM',
+      'ALERT_STREAM',
+      'table_vacated',
+      {
+        tableId,
+        table_id: tableId,
+        event_type: 'TABLE_VACATED',
+      }
+    );
+  } catch {
+    // Non-blocking WebSocket broadcast error
+  }
+
   const { TableLifecycleService } = await import('./table-lifecycle.service');
   await TableLifecycleService.emitTableEvent({
     tenantId,

@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { fetchWithRuntime, submitMutation } from '../../../lib/apiClient'
+import { fetchWithRuntime, submitMutation, fetchPublicApi } from '../../../lib/apiClient'
 import { runtime } from '../../../runtime'
 import { SupabaseTransportAdapter } from '../../../runtime/transport/SupabaseTransportAdapter'
 import { supabase } from '../../../lib/supabase'
@@ -55,15 +55,20 @@ export default function OrderTracking() {
 
     const fetchOrder = async () => {
       try {
-        const { tenantId, tableId } = getQrSession()
-        const params = new URLSearchParams()
-        if (tenantId) params.set('tenantId', tenantId)
-        if (tableId) params.set('tableId', tableId)
-        const res = await fetchWithRuntime(`/api/v1/customer/orders/${resolvedOrderId}?${params.toString()}`)
+        const { sessionToken } = getQrSession()
+        const res = await fetchPublicApi(`/api/v1/public/orders/${resolvedOrderId}/status`, {
+          headers: sessionToken ? { 'x-qr-session-token': sessionToken } : {}
+        })
         if (res.ok) {
           const { data } = await res.json()
           if (data) {
-            useOrderStore.getState().replaceOrderProjection(data)
+            useOrderStore.getState().replaceOrderProjection({
+              ...data,
+              order_items: data.items || [],
+              total_amount: data.total_minor ? Math.round(data.total_minor / 100) : 0,
+              tax_amount: data.tax_minor ? Math.round(data.tax_minor / 100) : 0,
+              subtotal: data.subtotal_minor ? Math.round(data.subtotal_minor / 100) : 0,
+            })
           }
         }
       } catch (err) {
@@ -86,30 +91,34 @@ export default function OrderTracking() {
     runtime.bootstrap('customer_order_tracking', resolvedOrderId, adapter, topic);
 
     // Direct Supabase realtime subscription for instant order updates
-    const channel = supabase.channel(`customer_order_${resolvedOrderId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: `id=eq.${resolvedOrderId}`
-        },
-        (payload) => {
-          console.debug('[OrderTracking] Realtime update:', payload.new)
-          if (payload.new) {
-            useOrderStore.getState().replaceOrderProjection(payload.new)
-          }
-        }
-      )
-      .subscribe()
+    const channel = supabase
+      ? supabase.channel(`customer_order_${resolvedOrderId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'orders',
+              filter: `id=eq.${resolvedOrderId}`
+            },
+            (payload) => {
+              console.debug('[OrderTracking] Realtime update:', payload.new)
+              if (payload.new) {
+                useOrderStore.getState().replaceOrderProjection(payload.new)
+              }
+            }
+          )
+          .subscribe()
+      : null;
 
     // Fallback polling — degraded mode recovery until projection store is wired
     const fallbackPoll = setInterval(fetchOrder, 10000)
 
     return () => {
       clearInterval(fallbackPoll)
-      supabase.removeChannel(channel)
+      if (channel && supabase) {
+        supabase.removeChannel(channel)
+      }
       runtime.transport.suspend()
     }
   }, [resolvedOrderId])
@@ -185,9 +194,13 @@ export default function OrderTracking() {
   const handleRequestPayment = async (method) => {
     setIsSubmitting(true)
     try {
-      const res = await fetchWithRuntime(`/public/orders/${resolvedOrderId}/request-payment`, {
+      const { sessionToken } = getQrSession()
+      const res = await fetchPublicApi(`/api/v1/public/orders/${resolvedOrderId}/request-payment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionToken ? { 'x-qr-session-token': sessionToken } : {})
+        },
         body: JSON.stringify({ payment_method: method }),
       })
       if (!res.ok) throw new Error('Payment request failed')

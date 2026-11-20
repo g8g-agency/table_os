@@ -34,6 +34,11 @@ export default function OrdersPage() {
 
     const fetchOrders = async () => {
       if (cancelled) return;
+      if (!supabase) {
+        console.warn('[OrdersPage] Supabase client not initialized; cannot fetch orders');
+        setLoading(false);
+        return;
+      }
       try {
         const sessionStart = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
         const { data: fetchedOrders, error: ordersError } = await supabase
@@ -50,23 +55,29 @@ export default function OrdersPage() {
         if (ordersError) throw ordersError;
 
         if (fetchedOrders && fetchedOrders.length > 0) {
-          const orderIds = fetchedOrders.map(o => o.id);
-          const { data: itemsData } = await supabase
-            .from('order_items')
-            .select('*')
-            .in('order_id', orderIds);
+          const enrichedOrders = await Promise.all(
+            fetchedOrders.map(async (o) => {
+              try {
+                const res = await fetchWithRuntime(
+                  `/api/v1/customer/orders/${o.id}?tenantId=${activeTenantId}&tableId=${tableId}`
+                );
+                if (res.ok) {
+                  const json = await res.json();
+                  const details = json.data || json;
+                  return {
+                    ...o,
+                    order_items: details.order_items || details.items || [],
+                  };
+                }
+              } catch (e) {
+                console.warn('[OrdersPage] could not fetch details for order', o.id, e);
+              }
+              return { ...o, order_items: [] };
+            })
+          );
 
           if (cancelled) return;
-          const itemsByOrder = (itemsData || []).reduce((acc, item) => {
-            acc[item.order_id] = acc[item.order_id] || [];
-            acc[item.order_id].push(item);
-            return acc;
-          }, {});
-
-          setOrders(fetchedOrders.map(o => ({
-            ...o,
-            order_items: itemsByOrder[o.id] || []
-          })));
+          setOrders(enrichedOrders);
         } else {
           setOrders([]);
         }
@@ -81,20 +92,24 @@ export default function OrdersPage() {
 
     // Realtime subscription instead of polling
     const channel = supabase
-      .channel(`orders_page_${tableId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'orders',
-        filter: `table_id=eq.${tableId}`,
-      }, () => {
-        fetchOrders(); // refetch on any change
-      })
-      .subscribe();
+      ? supabase
+          .channel(`orders_page_${tableId}`)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'orders',
+            filter: `table_id=eq.${tableId}`,
+          }, () => {
+            fetchOrders(); // refetch on any change
+          })
+          .subscribe()
+      : null;
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [tableId, activeTenantId, session.name]);
 

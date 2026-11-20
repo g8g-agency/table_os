@@ -12,24 +12,16 @@
 // ============================================================
 
 import { logger } from '../../../shared/utils/logger';
-import { findRecommendationsForItems } from '../repositories/menu-recommendation.repository';
-import { findAnyItemById, findAllBranchItemOverrides, findModifierGroupIdsForItem, findModifierGroupIdsForItems } from '../repositories/menu-item.repository';
+import { executeRecommendationEngine } from '../engine/recommendation-engine';
+import { findAnyItemsByIds, findAllBranchItemOverrides, findModifierGroupIdsForItems } from '../repositories/menu-item.repository';
 import { findModifierGroupsWithOptions, findBranchModifierGroupOverrides, findBranchModifierOverrides } from '../repositories/modifier.repository';
-import type { EffectiveMenuItemRecommendation, MenuItem, EffectiveMenuItem, ModifierGroupWithOptions, ModifierOption } from '../menu.types';
+import type { EffectiveMenuItemRecommendation, EffectiveMenuItem, ModifierGroupWithOptions, ModifierOption, RecommendationType } from '../menu.types';
+import { RecommendationCacheService } from '../cache/recommendation-cache.service';
 
 // ─── Constants ─────────────────────────────────────────────────
 
 const HARD_LIMIT_MAX = 10;
 const HARD_LIMIT_DEFAULT = 5;
-
-// Weight map for deterministic sorting when priorities match
-const RECOMMENDATION_WEIGHT: Record<string, number> = {
-  popular_pair: 5,
-  complementary: 4,
-  beverage: 3,
-  upsell: 2,
-  variant: 1,
-};
 
 // ─── In-Memory Cache (Point 5) ─────────────────────────────────
 
@@ -72,6 +64,21 @@ function setCachedRecommendations(key: string, data: EffectiveMenuItemRecommenda
   }
 }
 
+export function invalidateCartRecommendationCache(tenantId?: string): void {
+  if (!tenantId) {
+    recommendationCache.clear();
+    return;
+  }
+  const prefix = `${tenantId}:`;
+  for (const key of recommendationCache.keys()) {
+    if (key.startsWith(prefix)) {
+      recommendationCache.delete(key);
+    }
+  }
+}
+
+RecommendationCacheService.registerInvalidationHook(invalidateCartRecommendationCache);
+
 // ─── Targeted Item Resolution (Point 2) ─────────────────────────
 //
 // This function is STRICTLY READ-ONLY:
@@ -88,12 +95,8 @@ export async function resolveEffectiveMenuItemsByIds(
 ): Promise<EffectiveMenuItem[]> {
   if (itemIds.length === 0) return [];
 
-  // 1. Fetch only the exact items requested (read-only point lookups)
-  const rawItems = await Promise.all(
-    itemIds.map(id => findAnyItemById(tenantId, id))
-  );
-
-  const items = rawItems.filter((i): i is MenuItem => i !== null);
+  // 1. Fetch only the exact items requested via single batch query (eliminates N+1)
+  const items = await findAnyItemsByIds(tenantId, itemIds);
   if (items.length === 0) return [];
 
   // 2. Load branch overrides (read-only batch)
@@ -215,77 +218,48 @@ export async function getCartRecommendations(
 
   // Point 4: Wrap entire resolution in try/catch — failures must NEVER block cart
   try {
-    // 1. Fetch raw recommendations mapped from cart items
-    const allRecs = await findRecommendationsForItems(tenantId, cartItemIds, 100);
+    // 1. Execute deterministic recommendation engine pipeline
+    const engineRecs = await executeRecommendationEngine({
+      tenantId,
+      branchId,
+      sourceItemIds: cartItemIds,
+      cartItemIds: cartItemIds,
+      surface: 'cart',
+      limit: safeLimit,
+    });
 
-    // 2. Filter out circular / already in cart, deduplicate
-    const cartSet = new Set(cartItemIds);
-    const candidatesMap = new Map<string, typeof allRecs[0]>();
-
-    for (const rec of allRecs) {
-      if (cartSet.has(rec.recommended_menu_item_id)) continue;
-
-      const existing = candidatesMap.get(rec.recommended_menu_item_id);
-      if (
-        !existing ||
-        rec.priority > existing.priority ||
-        (rec.priority === existing.priority &&
-          (RECOMMENDATION_WEIGHT[rec.recommendation_type] || 0) >
-            (RECOMMENDATION_WEIGHT[existing.recommendation_type] || 0))
-      ) {
-        candidatesMap.set(rec.recommended_menu_item_id, rec);
-      }
-    }
-
-    const candidateRecs = Array.from(candidatesMap.values());
-    if (candidateRecs.length === 0) {
+    if (engineRecs.length === 0) {
       // Point 10: Log empty recommendation rate
       logger.info(
-        { tenantId, branchId, cartItemCount: cartItemIds.length, rawRecCount: allRecs.length, latencyMs: Date.now() - startMs },
-        '[Recommendations] No candidates after dedup/filtering'
+        { tenantId, branchId, cartItemCount: cartItemIds.length, latencyMs: Date.now() - startMs },
+        '[Recommendations] No recommendations produced by engine'
       );
       setCachedRecommendations(cacheKey, []);
       return [];
     }
 
-    // 3. Resolve effective branch items (read-only, no projection rebuilds)
-    const itemIdsToResolve = candidateRecs.map(r => r.recommended_menu_item_id);
+    // 2. Resolve effective branch items (read-only point lookups, no projection rebuilds)
+    const itemIdsToResolve = engineRecs.map(r => r.menu_item_id);
     const effectiveItems = await resolveEffectiveMenuItemsByIds(tenantId, branchId, itemIdsToResolve);
-
-    // 4. Map back, filter unavailable, sort, and limit
     const effectiveMap = new Map(effectiveItems.map(i => [i.id, i]));
 
     let filteredUnavailableCount = 0;
+    const resolvedRecs: EffectiveMenuItemRecommendation[] = [];
 
-    const resolvedRecs: EffectiveMenuItemRecommendation[] = candidateRecs
-      .map(rec => {
-        const effectiveItem = effectiveMap.get(rec.recommended_menu_item_id);
-        if (!effectiveItem || !effectiveItem.is_available) {
-          filteredUnavailableCount++;
-          return null;
-        }
+    // 3. Assemble effective items preserving engine rank order
+    for (const rec of engineRecs) {
+      const effectiveItem = effectiveMap.get(rec.menu_item_id);
+      if (!effectiveItem || !effectiveItem.is_available) {
+        filteredUnavailableCount++;
+        continue;
+      }
 
-        return {
-          ...effectiveItem,
-          recommendation_type: rec.recommendation_type,
-          currency: 'INR', // ISO 4217 — stable contract field
-          _priority: rec.priority,
-          _createdAt: rec.created_at,
-        };
-      })
-      .filter((r): r is EffectiveMenuItemRecommendation & { _priority: number; _createdAt: string } => r !== null)
-      .sort((a, b) => {
-        // Priority DESC
-        if (a._priority !== b._priority) return b._priority - a._priority;
-        // Type Weight DESC
-        const weightA = RECOMMENDATION_WEIGHT[a.recommendation_type] || 0;
-        const weightB = RECOMMENDATION_WEIGHT[b.recommendation_type] || 0;
-        if (weightA !== weightB) return weightB - weightA;
-        // CreatedAt ASC (older first)
-        return new Date(a._createdAt).getTime() - new Date(b._createdAt).getTime();
-      })
-      .slice(0, safeLimit)
-      .map(({ _priority, _createdAt, ...rest }) => rest);
+      resolvedRecs.push({
+        ...effectiveItem,
+        recommendation_type: rec.reason_code as RecommendationType,
+        currency: 'INR', // ISO 4217 — stable contract field
+      });
+    }
 
     // Point 5: Cache the resolved result
     setCachedRecommendations(cacheKey, resolvedRecs);
@@ -297,8 +271,7 @@ export async function getCartRecommendations(
         tenantId,
         branchId,
         cartItemCount: cartItemIds.length,
-        rawRecCount: allRecs.length,
-        candidateCount: candidateRecs.length,
+        engineRecCount: engineRecs.length,
         filteredUnavailableCount,
         returnedCount: resolvedRecs.length,
         latencyMs,

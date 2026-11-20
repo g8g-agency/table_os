@@ -1,13 +1,9 @@
 /* eslint-disable */
 import { useState, useEffect } from 'react'
-import { useSessionStore } from '../../../store/index'
-import { submitMutation } from '../../../lib/apiClient'
-import { getTableNum } from '../utils/tableNum'
-
-const TENANT_ID = import.meta.env.VITE_TENANT_ID || '11111111-1111-1111-1111-111111111111'
+import { fetchPublicApi } from '../../../lib/apiClient'
+import { getQrSession } from '../utils/qrSession'
 
 export default function AssistModal({ open, onClose }) {
-  const { session_id, table_num } = useSessionStore()
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
@@ -24,29 +20,57 @@ export default function AssistModal({ open, onClose }) {
   if (!open) return null
 
   const sendAssistRequest = async (requestType) => {
+    const qrSession = getQrSession()
+    if (!qrSession?.sessionToken) {
+      setError('Your session has expired. Please scan your table QR code again.')
+      return
+    }
+
     setLoading(true)
-    setError(null)
+    setError('')
+
+    let type = 'service'
+    let notes = ''
+
+    if (requestType === 'waiter') {
+      type = 'service'
+      notes = specialNote.trim() ? `Call Waiter: ${specialNote.trim()}` : 'Call Waiter'
+    } else if (requestType === 'water') {
+      type = 'service'
+      notes = specialNote.trim() ? `Request Water: ${specialNote.trim()}` : 'Request Water'
+    } else if (requestType === 'bill') {
+      type = 'bill'
+      notes = specialNote.trim() ? `Ask for Bill: ${specialNote.trim()}` : 'Ask for Bill'
+    } else {
+      type = 'other'
+      notes = specialNote.trim() || customMsg.trim() || 'Special Request'
+    }
 
     try {
-      await submitMutation('/api/v1/runtime/mutations', {
-        mutation_id: 'create_assistance_request',
-        idempotency_key: crypto.randomUUID(),
-        payload: {
-          tenant_id: TENANT_ID,
-          table_id: 'e719f4e5-b0f1-4c71-8e31-197041d71956',
-          table_num: table_num || getTableNum(),
-          table_session_id: session_id || '',
-          request_type: requestType,
-          message: specialNote.trim() || null,
-        }
+      const res = await fetchPublicApi('/api/v1/public/waiter-call', {
+        method: 'POST',
+        headers: {
+          'x-qr-session-token': qrSession.sessionToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type,
+          notes,
+        }),
       })
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}))
+        throw new Error(errJson?.error?.message || 'Failed to send request. Try again.')
+      }
 
       setSuccess('Request sent! Someone will be with you shortly.')
       setSpecialNote('')
+      setCustomMsg('')
       setTimeout(() => { setSuccess(''); onClose() }, 2000)
 
     } catch (err) {
-      setError('Failed to send request. Try again.')
+      setError(err.message || 'Failed to send request. Try again.')
     } finally {
       setLoading(false)
     }
@@ -99,7 +123,7 @@ export default function AssistModal({ open, onClose }) {
               <button 
                 onClick={() => sendAssistRequest('waiter')}
                 disabled={loading}
-                style={btnStyle}
+                style={btnStyle(loading)}
               >
                 <span className="material-symbols-outlined" style={{ color: '#E31E24' }}>pan_tool</span>
                 Call Waiter
@@ -108,7 +132,7 @@ export default function AssistModal({ open, onClose }) {
               <button 
                 onClick={() => sendAssistRequest('water')}
                 disabled={loading}
-                style={btnStyle}
+                style={btnStyle(loading)}
               >
                 <span className="material-symbols-outlined" style={{ color: '#3B82F6' }}>water_drop</span>
                 Request Water
@@ -117,7 +141,7 @@ export default function AssistModal({ open, onClose }) {
               <button 
                 onClick={() => sendAssistRequest('bill')}
                 disabled={loading}
-                style={btnStyle}
+                style={btnStyle(loading)}
               >
                 <span className="material-symbols-outlined" style={{ color: '#10B981' }}>receipt_long</span>
                 Ask for Bill
@@ -126,7 +150,7 @@ export default function AssistModal({ open, onClose }) {
               <button 
                 onClick={() => sendAssistRequest('special')}
                 disabled={loading}
-                style={btnStyle}
+                style={btnStyle(loading)}
               >
                 <span className="material-symbols-outlined" style={{ color: '#8B5CF6' }}>support_agent</span>
                 Special Request...
@@ -187,7 +211,7 @@ export default function AssistModal({ open, onClose }) {
   )
 }
 
-const btnStyle = {
+const btnStyle = (disabled) => ({
   display: 'flex',
   alignItems: 'center',
   padding: '16px 20px',
@@ -197,8 +221,11 @@ const btnStyle = {
   fontSize: 16,
   fontWeight: 600,
   fontFamily: 'Plus Jakarta Sans, sans-serif',
-  color: '#002045',
-  cursor: 'pointer',
+  color: disabled ? '#9CA3AF' : '#002045',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.6 : 1,
   gap: 16,
-  textAlign: 'left'
-}
+  textAlign: 'left',
+  width: '100%',
+  transition: 'all 0.15s ease',
+})
