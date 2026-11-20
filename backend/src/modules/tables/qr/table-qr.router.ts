@@ -8,6 +8,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { TableQRService } from './table-qr.service';
 import { supabaseAdmin } from '../../../config/supabase';
+import { AppError } from '../../../shared/errors/AppError';
 // Assuming rate limit middleware is available
 // import { rateLimit } from 'express-rate-limit'; 
 
@@ -82,6 +83,18 @@ router.get('/:token', async (req: Request, res: Response, next: NextFunction) =>
       data: bootstrapPayload
     });
   } catch (err: any) { 
+    if (err instanceof AppError) {
+      if (err.statusCode < 500) {
+        res.status(err.statusCode).json({
+          success: false,
+          code: err.code,
+          message: err.message,
+        });
+        return;
+      }
+      return next(err);
+    }
+
     // Map internal error messages to standard error codes
     let code = 'INTERNAL_ERROR';
     let status = 500;
@@ -104,10 +117,22 @@ router.get('/:token', async (req: Request, res: Response, next: NextFunction) =>
     ) {
       code = 'BRANCH_NOT_FOUND';
       status = 404;
+    } else if (
+      err.message === 'TABLE_OCCUPIED_INCONSISTENT_STATE' ||
+      err.code === 'TABLE_OCCUPIED_INCONSISTENT_STATE'
+    ) {
+      code = 'TABLE_OCCUPIED_INCONSISTENT_STATE';
+      status = 409;
+    } else if (
+      err.message === 'TABLE_NOT_ELIGIBLE' ||
+      err.code === 'TABLE_NOT_ELIGIBLE'
+    ) {
+      code = 'TABLE_NOT_ELIGIBLE';
+      status = 409;
     }
 
-    if (status === 404) {
-      res.status(404).json({ success: false, code, message: err.message });
+    if (status < 500) {
+      res.status(status).json({ success: false, code, message: err.message });
     } else {
       next(err);
     }

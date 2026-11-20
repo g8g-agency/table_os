@@ -204,6 +204,16 @@ export async function createOrderFromCart(params: {
   }
   const tableSessionId = activeSession.id;
 
+  // Bind active table session to guest session to satisfy atomic checkout invariants
+  const effectiveSessionId = params.sessionId || cart.session_id || null;
+  if (effectiveSessionId) {
+    await supabaseAdmin
+      .from('guest_sessions')
+      .update({ table_session_id: tableSessionId })
+      .eq('id', effectiveSessionId)
+      .eq('tenant_id', tenantId);
+  }
+
   // 4. Create immutable order snapshots (reads cart, runs database-level snapshot inserts)
   const snapshotId = await createOrderSnapshot(tenantId, cartId, cart.version_num, customerName);
 
@@ -309,6 +319,11 @@ export async function createOrderFromCart(params: {
           throw new AppError(`Fallback order creation failed: ${orderInsError.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
         }
 
+        // Link order_snapshot to the order
+        await supabaseAdmin.from('order_snapshots').update({
+          order_id: orderId,
+        }).eq('id', snapshotId).eq('tenant_id', tenantId);
+
         const computedSubtotal = cartItems.reduce((acc, item) => {
           const itemMods = modifiers.filter(m => m.cart_item_id === item.id);
           const modTotal = itemMods.reduce((mAcc, m) => mAcc + Number(m.price_delta_minor_snapshot || 0), 0);
@@ -366,6 +381,9 @@ export async function createOrderFromCart(params: {
     if (Object.keys(explicitUpdates).length > 0) {
       await supabaseAdmin.from('orders').update(explicitUpdates).eq('id', orderId).eq('tenant_id', tenantId);
     }
+
+    // Ensure order_snapshot is linked to the order
+    await supabaseAdmin.from('order_snapshots').update({ order_id: orderId }).eq('id', snapshotId).eq('tenant_id', tenantId);
 
     const response = responseData as { order_id: string; invoice_id: string; status: string };
     

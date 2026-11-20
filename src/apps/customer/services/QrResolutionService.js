@@ -42,6 +42,12 @@ export class QrResolutionService {
           throw new Error('RATE_LIMITED');
         }
 
+        if (response.status === 409 || ['TABLE_OCCUPIED_INCONSISTENT_STATE', 'TABLE_NOT_ELIGIBLE'].includes(body.code)) {
+          const code = body.code || 'TABLE_NOT_ELIGIBLE';
+          this.logFailure(token, code, latency);
+          throw new Error(code);
+        }
+
         this.logFailure(token, 'QR_RESOLUTION_FAILED', latency);
         throw new Error('QR_RESOLUTION_FAILED');
       }
@@ -76,7 +82,7 @@ export class QrResolutionService {
 
     } catch (err) {
       // Re-throw standardized errors
-      if (['TABLE_NOT_FOUND', 'BRANCH_NOT_FOUND', 'QR_NOT_FOUND', 'RATE_LIMITED', 'QR_RESOLUTION_FAILED'].includes(err.message)) {
+      if (['TABLE_NOT_FOUND', 'BRANCH_NOT_FOUND', 'QR_NOT_FOUND', 'RATE_LIMITED', 'TABLE_OCCUPIED_INCONSISTENT_STATE', 'TABLE_NOT_ELIGIBLE', 'QR_RESOLUTION_FAILED'].includes(err.message)) {
         throw err;
       }
       

@@ -79,8 +79,15 @@ import RuntimeCertificationPanel from './runtime/validation/RuntimeCertification
 function CustomerGate({ children }) {
   useEffect(() => {
     Sentry.setTag("surface", "customer");
-    const qrToken = sessionStorage.getItem('qr_session_token');
-    const tableId = sessionStorage.getItem('qr_table_id');
+    let qrToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qr_session_token') : null;
+    let tableId = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qr_table_id') : null;
+    if ((!qrToken || !tableId) && typeof localStorage !== 'undefined') {
+      try {
+        const ctx = JSON.parse(localStorage.getItem('orderlyy_qr_context') || '{}');
+        qrToken = qrToken || ctx.guest_session_id;
+        tableId = tableId || ctx.table_id;
+      } catch {}
+    }
     if (qrToken && tableId) {
       import('./runtime').then(({ runtime }) => {
         runtime.bootstrap(`qr_table_${tableId}`, qrToken);

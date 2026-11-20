@@ -132,6 +132,7 @@ export async function createSession(payload: {
   tenant_id: string;
   branch_id: string;
   table_id: string;
+  table_session_id?: string | null;
   qr_code_id: string;
   nonce_id: string;
   session_token: string;
@@ -146,6 +147,7 @@ export async function createSession(payload: {
       tenant_id: payload.tenant_id,
       branch_id: payload.branch_id,
       table_id: payload.table_id,
+      table_session_id: payload.table_session_id ?? null,
       qr_code_id: payload.qr_code_id,
       session_token: payload.session_token,
       is_active: true,

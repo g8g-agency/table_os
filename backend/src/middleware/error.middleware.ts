@@ -32,6 +32,11 @@ export const errorMiddleware = (
     details = err.errors;
   }
 
+  // Attach original error to response so pino-http onResFinished logs the genuine exception
+  (res as any).err = err;
+
+  const correlationId = (req.headers['x-request-id'] as string) || (req as any).id || (res as any).getHeader?.('x-request-id');
+
   // Log error — NEVER include req.body (may contain passwords/PII)
   if (statusCode >= 500) {
     Sentry.withScope((scope) => {
@@ -92,12 +97,22 @@ export const errorMiddleware = (
     });
 
     logger.error({ 
-      err: { message: err.message, code: err.code, stack: err.stack },
+      correlationId,
+      errorName: err.name || 'Error',
+      errorMessage: err.message,
+      errorCode,
+      statusCode,
+      stack: err.stack,
       req: { method: req.method, url: req.url }
     }, 'Unhandled Exception');
   } else {
     logger.warn({ 
-      err: { message, errorCode, details }, 
+      correlationId,
+      errorName: err.name || 'Error',
+      errorMessage: message,
+      errorCode,
+      statusCode,
+      details, 
       req: { method: req.method, url: req.url } 
     }, 'Operational Error');
   }

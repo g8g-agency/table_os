@@ -67,7 +67,15 @@ export class MutationGateway {
     const requestId = this.observability.generateRequestId();
     const idempotencyKey = request.idempotency_key || crypto.randomUUID();
 
-    const qrToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qr_session_token') : null;
+    // Fall back to localStorage orderlyy_qr_context if sessionStorage was cleared across mobile tabs
+    let localQrContext: any = null;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localQrContext = JSON.parse(localStorage.getItem('orderlyy_qr_context') || '{}');
+      } catch {}
+    }
+
+    const qrToken = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qr_session_token') : null) || localQrContext?.guest_session_id || null;
 
     // Use location.hostname for local network testing to work seamlessly
     const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
@@ -78,8 +86,8 @@ export class MutationGateway {
     const identityState = useRuntimeIdentityStore.getState();
     const isClient = typeof sessionStorage !== 'undefined';
     
-    const tenantId = authState.tenantId || identityState.effectiveTenantId || (identityState as any).tenantId || (isClient ? sessionStorage.getItem('qr_tenant_id') : null) || null;
-    const branchId = authState.branchId || identityState.branchId || (isClient ? sessionStorage.getItem('qr_branch_id') : null) || null;
+    const tenantId = authState.tenantId || identityState.effectiveTenantId || (identityState as any).tenantId || (isClient ? sessionStorage.getItem('qr_tenant_id') : null) || localQrContext?.tenant_id || null;
+    const branchId = authState.branchId || identityState.branchId || (isClient ? sessionStorage.getItem('qr_branch_id') : null) || localQrContext?.branch_id || null;
 
     console.log('[MutationGateway] Auth state for envelope:', {
       hasTenantId: !!tenantId,
@@ -171,7 +179,14 @@ export class MutationGateway {
         // We log, but we do NOT attempt to mutate state locally. 
         // We throw so UI can render error, and projection stays intact.
         this.observability.recordMutationError(identity, response.status);
-        throw new Error(`Mutation failed with status ${response.status}`);
+        let errorMsg = `Mutation failed with status ${response.status}`;
+        try {
+          const errBody = await response.clone().json();
+          if (errBody?.error?.message) errorMsg = errBody.error.message;
+          else if (errBody?.message) errorMsg = errBody.message;
+          else if (errBody?.error && typeof errBody.error === 'string') errorMsg = errBody.error;
+        } catch {}
+        throw new Error(errorMsg);
       }
 
       identity.status = 'ACKNOWLEDGED'; // Waiting for confirmation via projection sync

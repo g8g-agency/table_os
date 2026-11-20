@@ -122,12 +122,33 @@ export async function getOrderById(tenantId: string, id: string): Promise<OrderW
   const { data, error } = await query.maybeSingle();
 
   if (error || !data) {
-    // Fallback: plain orders without the snapshot join
-    let plainQuery = supabaseAdmin.from('orders').select('*').eq('id', id);
+    // Fallback: plain orders with tables join if snapshot relation fails
+    let plainQuery = supabaseAdmin.from('orders').select('*, tables(display_name, table_number)').eq('id', id);
     if (tenantId) plainQuery = plainQuery.eq('tenant_id', tenantId);
     const { data: plain, error: plainErr } = await plainQuery.maybeSingle();
     if (plainErr) throw new AppError(`Failed to fetch order: ${plainErr.message}`, 500, ErrorCode.INTERNAL_SERVER_ERROR);
-    return plain ? ({ ...plain, items: [], total_amount: 0 } as OrderWithItems) : null;
+    if (!plain) return null;
+
+    const { data: directItems } = await supabaseAdmin
+      .from('order_items')
+      .select('id, menu_item_id, name, qty, unit_price')
+      .eq('order_id', id);
+
+    const fallbackItems = (directItems || []).map((i: any) => ({
+      id: i.id || '',
+      menu_item_id: i.menu_item_id || '',
+      name: i.name,
+      qty: i.qty || 1,
+      unit_price: Number(i.unit_price || 0),
+      line_total: Number(i.unit_price || 0) * (i.qty || 1),
+    }));
+
+    const tableData = (plain as any).tables;
+    const tableLabel = tableData?.display_name || (tableData?.table_number ? `Table ${tableData.table_number}` : 'Table');
+    (plain as any).table_number = tableLabel;
+    plain.items = fallbackItems;
+    plain.total_amount = fallbackItems.reduce((sum: number, i: any) => sum + (i.line_total || 0), 0);
+    return plain as OrderWithItems;
   }
 
   if (data) {
@@ -144,16 +165,16 @@ export async function getOrderById(tenantId: string, id: string): Promise<OrderW
     if (items.length === 0) {
       const { data: directItems } = await supabaseAdmin
         .from('order_items')
-        .select('id, menu_item_id, name, quantity, unit_price, total_price')
+        .select('id, menu_item_id, name, qty, unit_price')
         .eq('order_id', id);
       if (directItems && directItems.length > 0) {
         items = directItems.map((i: any) => ({
           id: i.id || '',
           menu_item_id: i.menu_item_id || '',
           name: i.name,
-          qty: i.quantity,
+          qty: i.qty || 1,
           unit_price: Number(i.unit_price || 0),
-          line_total: Number(i.total_price || 0),
+          line_total: Number(i.unit_price || 0) * (i.qty || 1),
         }));
       }
     }

@@ -34,6 +34,7 @@ export interface QrSession {
   tenant_id: string;
   branch_id: string;
   table_id: string;
+  table_session_id?: string | null;
   qr_code_id: string;
   nonce_id: string;
   session_token: string;

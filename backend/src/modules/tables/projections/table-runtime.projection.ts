@@ -13,7 +13,7 @@ export interface TableRuntimeState {
   active_guest_count: number;
   active_order_count: number;
   assistance_request_count: number;
-  runtime_state: 'FREE' | 'ACTIVE_GUESTS' | 'ORDERING' | 'PAYMENT_PENDING' | 'ASSISTANCE_REQUESTED';
+  runtime_state: 'FREE' | 'ACTIVE_GUESTS' | 'ORDERING' | 'PAYMENT_PENDING' | 'ASSISTANCE_REQUESTED' | 'RESERVED' | 'DIRTY';
   customer_payment_intent?: 'cash' | 'upi' | null;
   updated_at: string;
 }
@@ -75,7 +75,7 @@ export async function rebuildTableProjection(
     if (!ordersErr && orders) {
       // Terminal orders according to order fulfillment contract (delivered, completed, cancelled) are not active
       const activeKitchenOrders = orders.filter(o =>
-        ['open', 'pending', 'accepted', 'preparing', 'ready'].includes(o.status)
+        ['pending', 'accepted', 'preparing', 'ready', 'delivered', 'sync_conflict'].includes(o.status)
       );
       activeOrderCount = activeKitchenOrders.length;
 
@@ -118,6 +118,21 @@ export async function rebuildTableProjection(
     runtimeState = 'ORDERING';
   } else if (activeGuestCount > 0) {
     runtimeState = 'ACTIVE_GUESTS';
+  } else {
+    try {
+      const { data: tableData } = await supabase
+        .from('tables')
+        .select('status')
+        .eq('id', tableId)
+        .maybeSingle();
+      if (tableData?.status === 'reserved') {
+        runtimeState = 'RESERVED';
+      } else if (tableData?.status === 'dirty') {
+        runtimeState = 'DIRTY';
+      }
+    } catch {
+      // Graceful fallback to FREE
+    }
   }
 
   const newState: Omit<TableRuntimeState, 'updated_at'> = {

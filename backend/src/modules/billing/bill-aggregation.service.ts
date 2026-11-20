@@ -25,6 +25,9 @@ export class BillAggregationService {
     sessionId: string | null;
     orderIds: string[];
     snapshotIds?: string[];
+    taxTotalMinor?: number | null;
+    discountTotalMinor?: number | null;
+    grandTotalMinor?: number | null;
   }): Promise<BillDTO> {
     const { tenantId, tableId, sessionId, orderIds } = params;
 
@@ -42,11 +45,23 @@ export class BillAggregationService {
         .eq('tenant_id', tenantId)
         .eq('id', effectiveSessionId)
         .maybeSingle();
-      if (sess && sess.status === 'closed') {
-        throw new AppError('Cannot create or revise bill for closed session.', 400, ErrorCode.VALIDATION_ERROR);
-      }
-      if (tableId && sess && sess.table_id && sess.table_id !== tableId) {
-        throw new AppError('Table session does not belong to the specified table.', 400, ErrorCode.VALIDATION_ERROR);
+      if (sess) {
+        if (sess.status === 'closed') {
+          throw new AppError('Cannot create or revise bill for closed session.', 400, ErrorCode.VALIDATION_ERROR);
+        }
+        if (tableId && sess.table_id && sess.table_id !== tableId) {
+          throw new AppError('Table session does not belong to the specified table.', 400, ErrorCode.VALIDATION_ERROR);
+        }
+      } else {
+        const { data: guestSess } = await supabaseAdmin
+          .from('guest_sessions')
+          .select('table_session_id, table_id, is_active')
+          .eq('tenant_id', tenantId)
+          .eq('id', effectiveSessionId)
+          .maybeSingle();
+        if (guestSess?.table_session_id) {
+          effectiveSessionId = guestSess.table_session_id;
+        }
       }
     } else {
       if (orderIds.length > 0) {
@@ -84,7 +99,7 @@ export class BillAggregationService {
     if (orderIds.length > 0) {
       const { data: verifiedOrders } = await supabaseAdmin
         .from('orders')
-        .select('id, table_id, table_session_id')
+        .select('id, table_id, session_id, table_session_id')
         .eq('tenant_id', tenantId)
         .in('id', orderIds);
 
@@ -93,7 +108,12 @@ export class BillAggregationService {
           if (tableId && ord.table_id && ord.table_id !== tableId) {
             throw new AppError(`Order ${ord.id} does not belong to table ${tableId}.`, 400, ErrorCode.VALIDATION_ERROR);
           }
-          if (effectiveSessionId && ord.table_session_id && ord.table_session_id !== effectiveSessionId) {
+          if (
+            effectiveSessionId &&
+            ord.table_session_id &&
+            ord.table_session_id !== effectiveSessionId &&
+            ord.session_id !== effectiveSessionId
+          ) {
             throw new AppError(`Order ${ord.id} does not belong to session ${effectiveSessionId}.`, 400, ErrorCode.VALIDATION_ERROR);
           }
         }
@@ -126,6 +146,9 @@ export class BillAggregationService {
       sessionId: string | null;
       orderIds: string[];
       snapshotIds?: string[];
+      taxTotalMinor?: number | null;
+      discountTotalMinor?: number | null;
+      grandTotalMinor?: number | null;
     },
     effectiveSessionId: string | null
   ): Promise<BillDTO> {
@@ -174,8 +197,22 @@ export class BillAggregationService {
         `)
         .eq('tenant_id', tenantId);
 
-      if (snapshotIds && snapshotIds.length > 0) {
-        query = query.in('id', snapshotIds);
+      let effectiveSnapshotIds = snapshotIds && snapshotIds.length > 0 ? [...snapshotIds] : [];
+      if (effectiveSnapshotIds.length === 0 && orderIds && orderIds.length > 0) {
+        const { data: ordRows } = await supabaseAdmin
+          .from('orders')
+          .select('id, order_snapshot_id')
+          .eq('tenant_id', tenantId)
+          .in('id', orderIds);
+        if (ordRows && ordRows.length > 0) {
+          effectiveSnapshotIds = ordRows
+            .map((o: any) => o.order_snapshot_id)
+            .filter((id: any): id is string => Boolean(id));
+        }
+      }
+
+      if (effectiveSnapshotIds.length > 0) {
+        query = query.in('id', effectiveSnapshotIds);
       } else {
         query = query.in('order_id', orderIds);
       }
@@ -226,6 +263,19 @@ export class BillAggregationService {
             grand_total_minor: subtotal,
           });
         }
+      }
+
+      // If client provided explicit financial adjustments (e.g. POS tax, service charge, discount)
+      if (params.taxTotalMinor !== undefined && params.taxTotalMinor !== null) {
+        totalTax = Number(params.taxTotalMinor);
+      }
+      if (params.discountTotalMinor !== undefined && params.discountTotalMinor !== null) {
+        totalDiscount = Number(params.discountTotalMinor);
+      }
+      if (params.grandTotalMinor !== undefined && params.grandTotalMinor !== null) {
+        totalGrand = Number(params.grandTotalMinor);
+      } else {
+        totalGrand = totalSubtotal + totalTax - totalDiscount;
       }
 
       // 3. Pro-rate tax totals and discounts to individual bill items

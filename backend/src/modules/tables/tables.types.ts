@@ -16,7 +16,9 @@ export type TableRuntimeState =
   | 'ACTIVE_GUESTS'
   | 'ORDERING'
   | 'PAYMENT_PENDING'
-  | 'ASSISTANCE_REQUESTED';
+  | 'ASSISTANCE_REQUESTED'
+  | 'RESERVED'
+  | 'DIRTY';
 
 // ─── Table Floor ───────────────────────────────────────────────
 

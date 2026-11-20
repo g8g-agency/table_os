@@ -22,8 +22,11 @@ import {
 
 const aggregateBillSchema = z.object({
   orderIds: z.array(z.string().uuid()).min(1),
-  tableId: z.string().uuid().nullable(),
-  sessionId: z.string().uuid().nullable(),
+  tableId: z.string().uuid().nullable().optional(),
+  sessionId: z.string().uuid().nullable().optional(),
+  taxTotalMinor: z.number().int().min(0).optional().nullable(),
+  discountTotalMinor: z.number().int().min(0).optional().nullable(),
+  grandTotalMinor: z.number().int().min(0).optional().nullable(),
 });
 
 const createIntentSchema = z.object({
@@ -146,9 +149,12 @@ export async function aggregateBill(req: any, res: Response, next: any): Promise
     const bill = await BillAggregationService.aggregateOrdersIntoBill({
       tenantId,
       branchId,
-      tableId: parsed.data.tableId,
-      sessionId: parsed.data.sessionId,
+      tableId: parsed.data.tableId ?? null,
+      sessionId: parsed.data.sessionId ?? null,
       orderIds: parsed.data.orderIds,
+      taxTotalMinor: parsed.data.taxTotalMinor,
+      discountTotalMinor: parsed.data.discountTotalMinor,
+      grandTotalMinor: parsed.data.grandTotalMinor,
     });
 
     res.status(201).json({

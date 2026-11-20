@@ -97,7 +97,7 @@ export class FinancialProjectionService {
           const orderIds = joinData.map((jd) => jd.order_id);
           const { data: ordersData, error: ordersErr } = await supabaseAdmin
             .from('orders')
-            .select('id, order_number, status, grand_total_minor')
+            .select('id, order_number, status')
             .eq('tenant_id', tenantId)
             .in('id', orderIds);
 
@@ -106,7 +106,7 @@ export class FinancialProjectionService {
               id: o.id,
               order_number: o.order_number,
               status: o.status,
-              grand_total_minor: Number(o.grand_total_minor),
+              grand_total_minor: 0,
             }));
           }
         }

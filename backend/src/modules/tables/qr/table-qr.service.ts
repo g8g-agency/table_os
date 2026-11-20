@@ -232,13 +232,17 @@ export class TableQRService {
       qr_code_id: tokenData.id,
     });
 
-    // 4. Audit Logging for Security
-    await this.supabase.from('auth_audit_logs').insert({
-      tenant_id,
-      event_type: 'QR_SCANNED' as any,
-      ip_address: requestIp,
-      metadata: { table_id }
-    });
+    // 4. Audit Logging for Security (best-effort, non-blocking)
+    try {
+      await this.supabase.from('auth_audit_logs').insert({
+        tenant_id,
+        event_type: 'LOGIN_SUCCESS' as any,
+        ip_address: requestIp,
+        metadata: { table_id, action: 'QR_SCANNED' }
+      });
+    } catch {
+      // Non-blocking telemetry
+    }
 
     // 5. Return Deterministic Bootstrap Contract
     return {

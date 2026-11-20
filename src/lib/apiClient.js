@@ -162,6 +162,12 @@ export async function submitMutation(endpoint, mutation) {
       surfaceId = `qr_table_${qrTableId}`;
     }
   }
+  if (!surfaceId && typeof localStorage !== 'undefined') {
+    try {
+      const ctx = JSON.parse(localStorage.getItem('orderlyy_qr_context') || '{}');
+      if (ctx.table_id) surfaceId = `qr_table_${ctx.table_id}`;
+    } catch {}
+  }
   surfaceId = surfaceId || 'unknown_surface';
   
   // Delegate the operational mutation boundary to the formal runtime infrastructure
