@@ -5,6 +5,8 @@
 -- Lock Hierarchy: Rank 1 tables -> Rank 2 table_sessions -> Rank 3 guest_sessions -> Rank 4 bills -> Rank 5 orders
 -- =============================================================================
 
+BEGIN;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -55,7 +57,7 @@ CREATE OR REPLACE FUNCTION public.create_table_session_safely(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_table RECORD;
@@ -234,7 +236,7 @@ CREATE OR REPLACE FUNCTION public.resolve_or_create_guest_session(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_table RECORD;
@@ -427,7 +429,7 @@ CREATE OR REPLACE FUNCTION public.claim_table_waiter_safely(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_table RECORD;
@@ -614,7 +616,7 @@ CREATE OR REPLACE FUNCTION public.close_table_session_and_vacate(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_initial_session RECORD;
@@ -634,7 +636,7 @@ DECLARE
   v_session_closed_at TIMESTAMPTZ;
 BEGIN
   -- 0. Runtime role restriction: service_role exclusively
-  IF auth.role() != 'service_role' THEN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN
     RETURN jsonb_build_object(
       'success', false,
       'code', 'FORBIDDEN',
@@ -744,14 +746,96 @@ BEGIN
   END IF;
 
   -- 6. Lock Hierarchy Rank 4: Financial Validation and Kitchen Fulfillment Protection
-  -- A. Outstanding Bills Check
+  -- A. Outstanding Bills Check (Exclude superseded zero-payment duplicate bills whose items and orders are covered by PAID bills)
   SELECT count(*) INTO v_unsettled_bills_count
-    FROM public.bills
-   WHERE tenant_id = p_tenant_id
-     AND status::text NOT IN ('PAID', 'VOIDED', 'CANCELLED')
+    FROM public.bills b
+   WHERE b.tenant_id = p_tenant_id
+     AND b.status::text NOT IN ('PAID', 'VOIDED', 'CANCELLED')
      AND (
-       (v_table_session.id IS NOT NULL AND table_session_id = v_table_session.id)
-       OR (v_table_session.id IS NULL AND session_id = p_session_id)
+       (v_table_session.id IS NOT NULL AND b.table_session_id = v_table_session.id)
+       OR (v_table_session.id IS NULL AND b.session_id = p_session_id)
+     )
+     AND NOT (
+       b.amount_paid_minor = 0
+       -- Must have bill items and bill orders (empty drafts must never be excluded)
+       AND EXISTS (
+         SELECT 1 FROM public.bill_items bi
+          WHERE bi.bill_id = b.id
+            AND bi.tenant_id = p_tenant_id
+       )
+       AND EXISTS (
+         SELECT 1 FROM public.bill_orders bo
+          WHERE bo.bill_id = b.id
+            AND bo.tenant_id = p_tenant_id
+       )
+       -- Paid bills must exist for this exact session
+       AND EXISTS (
+         SELECT 1 FROM public.bills pb
+          WHERE pb.tenant_id = p_tenant_id
+            AND pb.status = 'PAID'
+            AND (
+              (v_table_session.id IS NOT NULL AND pb.table_session_id = v_table_session.id)
+              OR (v_table_session.id IS NULL AND pb.session_id = p_session_id)
+            )
+       )
+       -- Every order item snapshot in draft b must have its full quantity and monetary value covered by PAID bills for this session
+       AND NOT EXISTS (
+         SELECT 1
+           FROM (
+             SELECT bi.order_item_snapshot_id,
+                    SUM(bi.quantity) AS draft_qty,
+                    SUM(bi.grand_total_minor) AS draft_total
+               FROM public.bill_items bi
+              WHERE bi.bill_id = b.id
+                AND bi.tenant_id = p_tenant_id
+              GROUP BY bi.order_item_snapshot_id
+           ) d
+           LEFT JOIN (
+             SELECT pbi.order_item_snapshot_id,
+                    SUM(pbi.quantity) AS paid_qty,
+                    SUM(pbi.grand_total_minor) AS paid_total
+               FROM public.bill_items pbi
+               JOIN public.bills pb ON pb.id = pbi.bill_id
+              WHERE pb.tenant_id = p_tenant_id
+                AND pb.status = 'PAID'
+                AND (
+                  (v_table_session.id IS NOT NULL AND pb.table_session_id = v_table_session.id)
+                  OR (v_table_session.id IS NULL AND pb.session_id = p_session_id)
+                )
+              GROUP BY pbi.order_item_snapshot_id
+           ) p ON p.order_item_snapshot_id = d.order_item_snapshot_id
+          WHERE p.order_item_snapshot_id IS NULL
+             OR p.paid_qty < d.draft_qty
+             OR p.paid_total < d.draft_total
+       )
+       -- Every order in draft b must be covered by a PAID bill for this session
+       AND NOT EXISTS (
+         SELECT 1 FROM public.bill_orders bo
+          WHERE bo.bill_id = b.id
+            AND bo.tenant_id = p_tenant_id
+            AND bo.order_id NOT IN (
+              SELECT pbo.order_id
+                FROM public.bill_orders pbo
+                JOIN public.bills pb ON pb.id = pbo.bill_id
+               WHERE pb.tenant_id = p_tenant_id
+                 AND pb.status = 'PAID'
+                 AND (
+                   (v_table_session.id IS NOT NULL AND pb.table_session_id = v_table_session.id)
+                   OR (v_table_session.id IS NULL AND pb.session_id = p_session_id)
+                 )
+            )
+       )
+       -- Amount check: draft amount cannot exceed the total amount settled in PAID bills for this session
+       AND b.grand_total_minor <= (
+         SELECT COALESCE(SUM(pb.grand_total_minor), 0)
+           FROM public.bills pb
+          WHERE pb.tenant_id = p_tenant_id
+            AND pb.status = 'PAID'
+            AND (
+              (v_table_session.id IS NOT NULL AND pb.table_session_id = v_table_session.id)
+              OR (v_table_session.id IS NULL AND pb.session_id = p_session_id)
+            )
+       )
      );
 
   IF v_unsettled_bills_count > 0 THEN
@@ -1002,7 +1086,7 @@ CREATE OR REPLACE FUNCTION public.close_guest_session_safely(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_session RECORD;
@@ -1010,7 +1094,7 @@ DECLARE
   v_unsettled_bills_count INT := 0;
   v_unfulfilled_orders_count INT := 0;
 BEGIN
-  IF auth.role() != 'service_role' THEN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN
     RETURN jsonb_build_object(
       'success', false,
       'code', 'FORBIDDEN',
@@ -1045,12 +1129,82 @@ BEGIN
      AND tenant_id = p_tenant_id
      FOR UPDATE;
 
-  -- 1. Outstanding financial check
+  -- 1. Outstanding financial check (Exclude superseded zero-payment duplicate bills whose items and orders are covered by PAID bills)
   SELECT count(*) INTO v_unsettled_bills_count
-    FROM public.bills
-   WHERE tenant_id = p_tenant_id
-     AND (session_id = p_session_id OR (v_session.table_session_id IS NOT NULL AND table_session_id = v_session.table_session_id))
-     AND status::text NOT IN ('PAID', 'VOIDED', 'CANCELLED');
+    FROM public.bills b
+   WHERE b.tenant_id = p_tenant_id
+     AND (b.session_id = p_session_id OR (v_session.table_session_id IS NOT NULL AND b.table_session_id = v_session.table_session_id))
+     AND b.status::text NOT IN ('PAID', 'VOIDED', 'CANCELLED')
+     AND NOT (
+       b.amount_paid_minor = 0
+       -- Must have bill items and bill orders (empty drafts must never be excluded)
+       AND EXISTS (
+         SELECT 1 FROM public.bill_items bi
+          WHERE bi.bill_id = b.id
+            AND bi.tenant_id = p_tenant_id
+       )
+       AND EXISTS (
+         SELECT 1 FROM public.bill_orders bo
+          WHERE bo.bill_id = b.id
+            AND bo.tenant_id = p_tenant_id
+       )
+       -- Paid bills must exist for this exact session
+       AND EXISTS (
+         SELECT 1 FROM public.bills pb
+          WHERE pb.tenant_id = p_tenant_id
+            AND pb.status = 'PAID'
+            AND (pb.session_id = p_session_id OR (v_session.table_session_id IS NOT NULL AND pb.table_session_id = v_session.table_session_id))
+       )
+       -- Every order item snapshot in draft b must have its full quantity and monetary value covered by PAID bills for this session
+       AND NOT EXISTS (
+         SELECT 1
+           FROM (
+             SELECT bi.order_item_snapshot_id,
+                    SUM(bi.quantity) AS draft_qty,
+                    SUM(bi.grand_total_minor) AS draft_total
+               FROM public.bill_items bi
+              WHERE bi.bill_id = b.id
+                AND bi.tenant_id = p_tenant_id
+              GROUP BY bi.order_item_snapshot_id
+           ) d
+           LEFT JOIN (
+             SELECT pbi.order_item_snapshot_id,
+                    SUM(pbi.quantity) AS paid_qty,
+                    SUM(pbi.grand_total_minor) AS paid_total
+               FROM public.bill_items pbi
+               JOIN public.bills pb ON pb.id = pbi.bill_id
+              WHERE pb.tenant_id = p_tenant_id
+                AND pb.status = 'PAID'
+                AND (pb.session_id = p_session_id OR (v_session.table_session_id IS NOT NULL AND pb.table_session_id = v_session.table_session_id))
+              GROUP BY pbi.order_item_snapshot_id
+           ) p ON p.order_item_snapshot_id = d.order_item_snapshot_id
+          WHERE p.order_item_snapshot_id IS NULL
+             OR p.paid_qty < d.draft_qty
+             OR p.paid_total < d.draft_total
+       )
+       -- Every order in draft b must be covered by a PAID bill for this session
+       AND NOT EXISTS (
+         SELECT 1 FROM public.bill_orders bo
+          WHERE bo.bill_id = b.id
+            AND bo.tenant_id = p_tenant_id
+            AND bo.order_id NOT IN (
+              SELECT pbo.order_id
+                FROM public.bill_orders pbo
+                JOIN public.bills pb ON pb.id = pbo.bill_id
+               WHERE pb.tenant_id = p_tenant_id
+                 AND pb.status = 'PAID'
+                 AND (pb.session_id = p_session_id OR (v_session.table_session_id IS NOT NULL AND pb.table_session_id = v_session.table_session_id))
+            )
+       )
+       -- Amount check: draft amount cannot exceed the total amount settled in PAID bills for this session
+       AND b.grand_total_minor <= (
+         SELECT COALESCE(SUM(pb.grand_total_minor), 0)
+           FROM public.bills pb
+          WHERE pb.tenant_id = p_tenant_id
+            AND pb.status = 'PAID'
+            AND (pb.session_id = p_session_id OR (v_session.table_session_id IS NOT NULL AND pb.table_session_id = v_session.table_session_id))
+       )
+     );
 
   IF v_unsettled_bills_count > 0 THEN
     RETURN jsonb_build_object(
@@ -1095,10 +1249,13 @@ END;
 $$;
 
 -- 8. Unified Atomic settle_bill_and_vacate_safely RPC (Concurrency-Safe Financial Idempotency & Balance Protection)
+DROP FUNCTION IF EXISTS public.settle_bill_and_vacate_safely(UUID, UUID, INT, TEXT, UUID, TEXT, JSONB, UUID);
+DROP FUNCTION IF EXISTS public.settle_bill_and_vacate_safely(UUID, UUID, BIGINT, TEXT, UUID, TEXT, JSONB, UUID);
+
 CREATE OR REPLACE FUNCTION public.settle_bill_and_vacate_safely(
   p_tenant_id UUID,
   p_bill_id UUID,
-  p_amount_minor INT,
+  p_amount_minor BIGINT,
   p_payment_method TEXT,
   p_payment_intent_id UUID DEFAULT NULL,
   p_gateway_ref TEXT DEFAULT NULL,
@@ -1108,7 +1265,7 @@ CREATE OR REPLACE FUNCTION public.settle_bill_and_vacate_safely(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_meta_bill RECORD;
@@ -1118,10 +1275,11 @@ DECLARE
   v_session_id UUID;
   v_parent_table_session_id UUID;
   v_table_session RECORD;
-  v_new_paid INT;
-  v_grand_total INT;
-  v_remaining_minor INT;
+  v_new_paid BIGINT;
+  v_grand_total BIGINT;
+  v_remaining_minor BIGINT;
   v_target_status public.bill_status;
+  v_normalized_method public.payment_method;
   v_settlement_id UUID;
   v_existing_tx RECORD;
   v_existing_settlement RECORD;
@@ -1129,7 +1287,7 @@ DECLARE
   v_vacate_res JSONB;
 BEGIN
   -- 0. Runtime role restriction: service_role exclusively
-  IF auth.role() != 'service_role' THEN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN
     RETURN jsonb_build_object(
       'success', false,
       'code', 'FORBIDDEN',
@@ -1154,12 +1312,26 @@ BEGIN
     );
   END IF;
 
-  -- Enforce V3.11 payment scope: only Cash and authorized manual register payments supported
-  IF LOWER(p_payment_method) NOT IN ('cash', 'manual', 'cash_manual', 'authorized_manual') THEN
+  -- Enforce V3.11 payment scope: only Cash and authorized manual register payments supported.
+  -- Map accepted application-level aliases to database enum value 'cash'::public.payment_method.
+  -- Reject card, qr_pay, wallet, split, and other in this cash/manual-only release.
+  IF LOWER(TRIM(p_payment_method)) IN ('cash', 'manual', 'cash_manual', 'authorized_manual') THEN
+    v_normalized_method := 'cash'::public.payment_method;
+  ELSE
     RETURN jsonb_build_object(
       'success', false,
       'code', 'UNSUPPORTED_PAYMENT_METHOD',
       'error', 'Automated gateways and non-cash tender are out of scope in V3.11. Only cash and authorized manual payments are supported'
+    );
+  END IF;
+
+  -- Enforce V3.11 gateway deferral: release is strictly cash/manual only.
+  -- Reject every non-null gateway reference, gateway payload, or payment intent.
+  IF p_gateway_ref IS NOT NULL OR p_gateway_payload IS NOT NULL OR p_payment_intent_id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'code', 'GATEWAY_SETTLEMENT_DEFERRED',
+      'error', 'Gateway references, payloads, and payment intents are disabled in V3.11 cash/manual release'
     );
   END IF;
 
@@ -1373,13 +1545,13 @@ BEGIN
     INSERT INTO public.settlements (
       tenant_id, branch_id, bill_id, amount_minor, currency_code, processed_by, payment_intent_id
     ) VALUES (
-      p_tenant_id, v_bill.branch_id, p_bill_id, p_amount_minor, v_bill.currency_code, p_processed_by, p_payment_intent_id
+      p_tenant_id, v_bill.branch_id, p_bill_id, p_amount_minor, v_bill.currency_code, p_processed_by, NULL
     ) RETURNING id INTO v_settlement_id;
 
     INSERT INTO public.payment_transactions (
       tenant_id, branch_id, settlement_id, payment_method, amount_minor, currency_code, gateway_ref, gateway_payload, status
     ) VALUES (
-      p_tenant_id, v_bill.branch_id, v_settlement_id, p_payment_method, p_amount_minor, v_bill.currency_code, p_gateway_ref, p_gateway_payload, 'captured'
+      p_tenant_id, v_bill.branch_id, v_settlement_id, v_normalized_method, p_amount_minor, v_bill.currency_code, NULL, NULL, 'completed'::public.payment_status
     );
   EXCEPTION WHEN unique_violation THEN
     -- Both inserts were rolled back automatically by this subtransaction!
@@ -1479,45 +1651,13 @@ BEGIN
          updated_at = NOW()
    WHERE id = p_bill_id;
 
-  -- 8a. Atomic Payment Intent Finalization (Inside same DB transaction)
-  IF p_payment_intent_id IS NOT NULL THEN
-    UPDATE public.payment_intents
-       SET status = 'captured',
-           updated_at = NOW()
-     WHERE id = p_payment_intent_id
-       AND tenant_id = p_tenant_id;
-  END IF;
+  -- 8a. Payment Intent Finalization in V3.11:
+  -- External gateways remain deferred; cash/manual settlements never mutate payment_intents.
 
-  -- 8b. Atomic Payment Ledger Finalization (Inside same DB transaction)
-  IF p_gateway_ref IS NOT NULL THEN
-    BEGIN
-      INSERT INTO public.payment_ledger (
-        tenant_id,
-        branch_id,
-        order_id,
-        payment_provider,
-        payment_reference,
-        payment_status,
-        payment_amount_minor,
-        currency_code,
-        idempotency_key,
-        finalized_at
-      ) VALUES (
-        p_tenant_id,
-        v_bill.branch_id,
-        COALESCE(v_parent_table_session_id, v_session_id, p_bill_id),
-        p_payment_method,
-        p_gateway_ref,
-        'PAID',
-        p_amount_minor,
-        v_bill.currency_code,
-        COALESCE(p_gateway_ref, gen_random_uuid()::text),
-        NOW()
-      ) ON CONFLICT DO NOTHING;
-    EXCEPTION WHEN undefined_table THEN
-      NULL;
-    END;
-  END IF;
+  -- 8b. External Gateway / Payment Ledger in V3.11:
+  -- External provider settlement is disabled for this cash/manual-only release.
+  -- No payment_ledger entry is created here (payment_ledger.order_id strictly requires
+  -- an order UUID, never a table-session or bill UUID).
 
   -- 9. Kitchen Fulfillment Check before Table Vacancy
   IF v_target_status = 'PAID'::public.bill_status AND (v_parent_table_session_id IS NOT NULL OR v_session_id IS NOT NULL) THEN
@@ -1572,10 +1712,10 @@ REVOKE EXECUTE ON FUNCTION public.close_guest_session_safely(UUID, UUID) FROM an
 REVOKE EXECUTE ON FUNCTION public.close_guest_session_safely(UUID, UUID) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.close_guest_session_safely(UUID, UUID) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, INT, TEXT, UUID, TEXT, JSONB, UUID) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, INT, TEXT, UUID, TEXT, JSONB, UUID) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, INT, TEXT, UUID, TEXT, JSONB, UUID) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, INT, TEXT, UUID, TEXT, JSONB, UUID) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, BIGINT, TEXT, UUID, TEXT, JSONB, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, BIGINT, TEXT, UUID, TEXT, JSONB, UUID) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, BIGINT, TEXT, UUID, TEXT, JSONB, UUID) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.settle_bill_and_vacate_safely(UUID, UUID, BIGINT, TEXT, UUID, TEXT, JSONB, UUID) TO service_role;
 
 REVOKE EXECUTE ON FUNCTION public.claim_table_waiter_safely(UUID, UUID, UUID, UUID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.claim_table_waiter_safely(UUID, UUID, UUID, UUID) FROM anon;
@@ -1637,3 +1777,403 @@ BEGIN
   END IF;
 END $$;
 
+-- =========================================================================
+-- FUNCTION: create_or_revise_bill_atomic
+-- Purpose: Concurrency-safe, multi-instance idempotent bill creation and
+-- in-place cumulative revision protected by Rank 2 table session locks and
+-- PostgreSQL transaction-level advisory locks.
+-- =========================================================================
+CREATE OR REPLACE FUNCTION public.create_or_revise_bill_atomic(
+  p_tenant_id UUID,
+  p_branch_id UUID,
+  p_table_id UUID,
+  p_session_id UUID,
+  p_bill_number TEXT,
+  p_order_ids UUID[],
+  p_subtotal_minor BIGINT,
+  p_tax_total_minor BIGINT,
+  p_discount_total_minor BIGINT,
+  p_grand_total_minor BIGINT,
+  p_bill_items JSONB
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_effective_session_id UUID := p_session_id;
+  v_session_status TEXT;
+  v_session_table_id UUID;
+  v_order_session_count INT;
+  v_valid_orders_count INT;
+  v_existing_bill RECORD;
+  v_existing_orders UUID[];
+  v_is_same_orders BOOLEAN := false;
+  v_has_overlap_with_existing BOOLEAN := false;
+  v_updated_version INT;
+  v_result_bill RECORD;
+  v_conflict_item RECORD;
+  v_item JSONB;
+BEGIN
+  -- 0. Runtime role restriction: service_role exclusively
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'code', 'FORBIDDEN',
+      'error', 'Direct invocation restricted exclusively to service_role'
+    );
+  END IF;
+
+  -- 1. Validate tenant and branch parameters
+  IF p_tenant_id IS NULL OR p_branch_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'code', 'FORBIDDEN',
+      'error', 'Missing tenant_id or branch_id'
+    );
+  END IF;
+
+  -- Validate table belongs to tenant and branch if supplied
+  IF p_table_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.tables
+       WHERE id = p_table_id
+         AND tenant_id = p_tenant_id
+         AND branch_id = p_branch_id
+    ) THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'code', 'FORBIDDEN',
+        'error', 'Table does not belong to specified tenant/branch'
+      );
+    END IF;
+  END IF;
+
+  -- 2. Session Resolution and Table-Session Verification
+  IF v_effective_session_id IS NOT NULL THEN
+    SELECT status, table_id INTO v_session_status, v_session_table_id
+      FROM public.table_sessions
+     WHERE id = v_effective_session_id
+       AND tenant_id = p_tenant_id
+       AND branch_id = p_branch_id;
+
+    IF NOT FOUND THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'code', 'FORBIDDEN',
+        'error', 'Table session does not belong to specified tenant/branch'
+      );
+    END IF;
+
+    -- Validate table relationship with session
+    IF p_table_id IS NOT NULL AND v_session_table_id IS NOT NULL AND v_session_table_id != p_table_id THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'code', 'VALIDATION_ERROR',
+        'error', 'Table session does not belong to the specified table'
+      );
+    END IF;
+
+    IF v_session_status = 'closed' THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'code', 'SESSION_CLOSED',
+        'error', 'Cannot create or revise bill for closed session'
+      );
+    END IF;
+  ELSE
+    -- Resolve session from orders or table
+    IF p_order_ids IS NOT NULL AND array_length(p_order_ids, 1) > 0 THEN
+      SELECT count(DISTINCT table_session_id) INTO v_order_session_count
+        FROM public.orders
+       WHERE id = ANY(p_order_ids)
+         AND tenant_id = p_tenant_id
+         AND table_session_id IS NOT NULL;
+
+      IF v_order_session_count > 1 THEN
+        RETURN jsonb_build_object(
+          'success', false,
+          'code', 'AMBIGUOUS_ORDER_SESSIONS',
+          'error', 'Orders span multiple distinct table sessions'
+        );
+      ELSIF v_order_session_count = 1 THEN
+        SELECT DISTINCT table_session_id INTO v_effective_session_id
+          FROM public.orders
+         WHERE id = ANY(p_order_ids)
+           AND tenant_id = p_tenant_id
+           AND table_session_id IS NOT NULL
+         LIMIT 1;
+      END IF;
+    END IF;
+
+    -- If still null, resolve from table (active non-closed sessions)
+    IF v_effective_session_id IS NULL AND p_table_id IS NOT NULL THEN
+      SELECT id INTO v_effective_session_id
+        FROM public.table_sessions
+       WHERE tenant_id = p_tenant_id
+         AND branch_id = p_branch_id
+         AND table_id = p_table_id
+         AND status IN ('open', 'payment_requested', 'payment_processing')
+       ORDER BY created_at DESC
+       LIMIT 1;
+    END IF;
+  END IF;
+
+  -- 3. Validate that every submitted order belongs to specified tenant, branch, table, and table session
+  IF p_order_ids IS NOT NULL AND array_length(p_order_ids, 1) > 0 THEN
+    SELECT count(*) INTO v_valid_orders_count
+      FROM public.orders
+     WHERE id = ANY(p_order_ids)
+       AND tenant_id = p_tenant_id
+       AND branch_id = p_branch_id
+       AND (p_table_id IS NULL OR table_id = p_table_id)
+       AND (
+         v_effective_session_id IS NULL
+         OR table_session_id = v_effective_session_id
+         OR session_id = v_effective_session_id
+       );
+
+    IF v_valid_orders_count != array_length(p_order_ids, 1) THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'code', 'VALIDATION_ERROR',
+        'error', 'One or more orders do not belong to the specified tenant, branch, table, or table session'
+      );
+    END IF;
+  END IF;
+
+  -- 4. Validate that every supplied order item snapshot belongs to one of the submitted orders
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_bill_items)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1
+        FROM public.order_item_snapshots ois
+        JOIN public.order_snapshots os ON os.id = ois.order_snapshot_id
+       WHERE ois.id = (v_item->>'order_item_snapshot_id')::uuid
+         AND ois.tenant_id = p_tenant_id
+         AND os.order_id = ANY(p_order_ids)
+    ) THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'code', 'VALIDATION_ERROR',
+        'error', 'Order item snapshot ' || (v_item->>'order_item_snapshot_id') || ' does not belong to any of the specified orders'
+      );
+    END IF;
+  END LOOP;
+
+  -- 5. Concurrency Safety: Multi-instance PostgreSQL Transaction Advisory Lock
+  PERFORM pg_advisory_xact_lock(
+    hashtext(p_tenant_id::text),
+    hashtext(COALESCE(v_effective_session_id::text, p_table_id::text, p_tenant_id::text))
+  );
+
+  -- Global Lock Hierarchy Rank 2: Table Session Lock
+  IF v_effective_session_id IS NOT NULL THEN
+    PERFORM id
+      FROM public.table_sessions
+     WHERE id = v_effective_session_id
+       AND tenant_id = p_tenant_id
+       FOR UPDATE;
+  END IF;
+
+  -- 6. Find existing active bill for this session or table
+  SELECT * INTO v_existing_bill
+    FROM public.bills
+   WHERE tenant_id = p_tenant_id
+     AND (
+       (v_effective_session_id IS NOT NULL AND (table_session_id = v_effective_session_id OR session_id = v_effective_session_id))
+       OR (v_effective_session_id IS NULL AND p_table_id IS NOT NULL AND table_id = p_table_id)
+     )
+     AND status IN ('UNPAID', 'PARTIALLY_PAID')
+   ORDER BY created_at DESC
+   LIMIT 1
+   FOR UPDATE;
+
+  -- 7. Partially Paid Bill Protection & Overlap Detection
+  IF v_existing_bill.id IS NOT NULL THEN
+    SELECT EXISTS (
+      SELECT 1
+        FROM public.bill_items bi
+       WHERE bi.bill_id = v_existing_bill.id
+         AND bi.order_item_snapshot_id IN (
+           SELECT (item->>'order_item_snapshot_id')::uuid
+             FROM jsonb_array_elements(p_bill_items) AS item
+         )
+    ) INTO v_has_overlap_with_existing;
+
+    IF v_existing_bill.amount_paid_minor > 0 THEN
+      IF v_has_overlap_with_existing THEN
+        SELECT array_agg(order_id ORDER BY order_id) INTO v_existing_orders
+          FROM public.bill_orders
+         WHERE bill_id = v_existing_bill.id;
+
+        IF v_existing_orders = (SELECT array_agg(o ORDER BY o) FROM unnest(p_order_ids) o)
+           AND v_existing_bill.grand_total_minor = p_grand_total_minor THEN
+          RETURN jsonb_build_object(
+            'success', true,
+            'code', 'PARTIAL_PAYMENT_PRESERVED',
+            'bill', to_jsonb(v_existing_bill)
+          );
+        ELSE
+          RETURN jsonb_build_object(
+            'success', false,
+            'code', 'PARTIALLY_PAID_OVERLAP_CONFLICT',
+            'error', 'Requested items overlap with partially paid bill ' || v_existing_bill.bill_number || '. Unpaid items must be billed separately.'
+          );
+        END IF;
+      ELSE
+        v_existing_bill := NULL;
+      END IF;
+    END IF;
+  END IF;
+
+  -- 8. Anti-double billing verification: ensure none of the items are in any other active or paid bill
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_bill_items)
+  LOOP
+    SELECT bi.id, b.bill_number, b.status INTO v_conflict_item
+      FROM public.bill_items bi
+      JOIN public.bills b ON b.id = bi.bill_id
+     WHERE bi.tenant_id = p_tenant_id
+       AND bi.order_item_snapshot_id = (v_item->>'order_item_snapshot_id')::uuid
+       AND b.status IN ('UNPAID', 'PARTIALLY_PAID', 'PAID')
+       AND (v_existing_bill.id IS NULL OR bi.bill_id != v_existing_bill.id)
+     LIMIT 1;
+
+    IF FOUND THEN
+      IF v_conflict_item.status = 'PARTIALLY_PAID' THEN
+        RETURN jsonb_build_object(
+          'success', false,
+          'code', 'PARTIALLY_PAID_OVERLAP_CONFLICT',
+          'error', 'Order item snapshot ' || (v_item->>'order_item_snapshot_id') || ' is already partially paid under bill ' || v_conflict_item.bill_number
+        );
+      ELSE
+        RETURN jsonb_build_object(
+          'success', false,
+          'code', 'CONFLICT',
+          'error', 'Order item snapshot ' || (v_item->>'order_item_snapshot_id') || ' is already billed under ' || v_conflict_item.bill_number
+        );
+      END IF;
+    END IF;
+  END LOOP;
+
+  -- 9. Handle Existing Unpaid Draft Bill (Revision or Idempotent Hit)
+  IF v_existing_bill.id IS NOT NULL AND v_existing_bill.status = 'UNPAID' AND v_existing_bill.amount_paid_minor = 0 THEN
+    IF v_has_overlap_with_existing THEN
+      SELECT array_agg(order_id ORDER BY order_id) INTO v_existing_orders
+        FROM public.bill_orders
+       WHERE bill_id = v_existing_bill.id;
+
+      IF v_existing_orders = (SELECT array_agg(o ORDER BY o) FROM unnest(p_order_ids) o)
+         AND v_existing_bill.grand_total_minor = p_grand_total_minor THEN
+        RETURN jsonb_build_object('success', true, 'code', 'IDEMPOTENT_HIT', 'bill', to_jsonb(v_existing_bill));
+      END IF;
+
+      v_updated_version := COALESCE(v_existing_bill.version_num, 1) + 1;
+
+      UPDATE public.bills
+         SET subtotal_minor = p_subtotal_minor,
+             tax_total_minor = p_tax_total_minor,
+             discount_total_minor = p_discount_total_minor,
+             grand_total_minor = p_grand_total_minor,
+             version_num = v_updated_version,
+             table_session_id = COALESCE(v_effective_session_id, v_existing_bill.table_session_id),
+             session_id = COALESCE(v_effective_session_id, v_existing_bill.session_id),
+             table_id = COALESCE(p_table_id, v_existing_bill.table_id),
+             updated_at = NOW()
+       WHERE id = v_existing_bill.id
+       RETURNING * INTO v_result_bill;
+
+      DELETE FROM public.bill_items WHERE bill_id = v_existing_bill.id;
+      INSERT INTO public.bill_items (
+        tenant_id, bill_id, order_item_snapshot_id, quantity,
+        unit_price_minor, subtotal_minor, tax_total_minor, discount_total_minor, grand_total_minor
+      )
+      SELECT
+        p_tenant_id,
+        v_existing_bill.id,
+        (item->>'order_item_snapshot_id')::uuid,
+        (item->>'quantity')::smallint,
+        (item->>'unit_price_minor')::bigint,
+        (item->>'subtotal_minor')::bigint,
+        (item->>'tax_total_minor')::bigint,
+        (item->>'discount_total_minor')::bigint,
+        (item->>'grand_total_minor')::bigint
+      FROM jsonb_array_elements(p_bill_items) AS item;
+
+      DELETE FROM public.bill_orders WHERE bill_id = v_existing_bill.id;
+      INSERT INTO public.bill_orders (tenant_id, bill_id, order_id)
+      SELECT p_tenant_id, v_existing_bill.id, unnest(p_order_ids);
+
+      PERFORM public.log_financial_event(
+        p_tenant_id,
+        p_branch_id,
+        'BILL_UPDATED',
+        v_existing_bill.id,
+        'bill',
+        jsonb_build_object(
+          'billId', v_existing_bill.id,
+          'billNumber', v_existing_bill.bill_number,
+          'grandTotalMinor', p_grand_total_minor,
+          'orderIds', p_order_ids,
+          'versionNum', v_updated_version
+        )
+      );
+
+      RETURN jsonb_build_object('success', true, 'code', 'BILL_REVISED', 'bill', to_jsonb(v_result_bill));
+    END IF;
+  END IF;
+
+  -- 10. Insert New Bill (when no existing bill, or existing bill has disjoint items)
+  INSERT INTO public.bills (
+    tenant_id, branch_id, table_id, session_id, table_session_id,
+    bill_number, status, subtotal_minor, tax_total_minor, discount_total_minor,
+    grand_total_minor, amount_paid_minor, amount_refunded_minor, currency_code, version_num
+  ) VALUES (
+    p_tenant_id, p_branch_id, p_table_id, v_effective_session_id, v_effective_session_id,
+    p_bill_number, 'UNPAID', p_subtotal_minor, p_tax_total_minor, p_discount_total_minor,
+    p_grand_total_minor, 0, 0, 'INR', 1
+  ) RETURNING * INTO v_result_bill;
+
+  INSERT INTO public.bill_items (
+    tenant_id, bill_id, order_item_snapshot_id, quantity,
+    unit_price_minor, subtotal_minor, tax_total_minor, discount_total_minor, grand_total_minor
+  )
+  SELECT
+    p_tenant_id,
+    v_result_bill.id,
+    (item->>'order_item_snapshot_id')::uuid,
+    (item->>'quantity')::smallint,
+    (item->>'unit_price_minor')::bigint,
+    (item->>'subtotal_minor')::bigint,
+    (item->>'tax_total_minor')::bigint,
+    (item->>'discount_total_minor')::bigint,
+    (item->>'grand_total_minor')::bigint
+  FROM jsonb_array_elements(p_bill_items) AS item;
+
+  INSERT INTO public.bill_orders (tenant_id, bill_id, order_id)
+  SELECT p_tenant_id, v_result_bill.id, unnest(p_order_ids);
+
+  PERFORM public.log_financial_event(
+    p_tenant_id,
+    p_branch_id,
+    'BILL_CREATED',
+    v_result_bill.id,
+    'bill',
+    jsonb_build_object(
+      'billId', v_result_bill.id,
+      'billNumber', v_result_bill.bill_number,
+      'grandTotalMinor', p_grand_total_minor,
+      'orderIds', p_order_ids
+    )
+  );
+
+  RETURN jsonb_build_object('success', true, 'code', 'BILL_CREATED', 'bill', to_jsonb(v_result_bill));
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.create_or_revise_bill_atomic(UUID, UUID, UUID, UUID, TEXT, UUID[], BIGINT, BIGINT, BIGINT, BIGINT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_or_revise_bill_atomic(UUID, UUID, UUID, UUID, TEXT, UUID[], BIGINT, BIGINT, BIGINT, BIGINT, JSONB) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_or_revise_bill_atomic(UUID, UUID, UUID, UUID, TEXT, UUID[], BIGINT, BIGINT, BIGINT, BIGINT, JSONB) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.create_or_revise_bill_atomic(UUID, UUID, UUID, UUID, TEXT, UUID[], BIGINT, BIGINT, BIGINT, BIGINT, JSONB) TO service_role;
+
+COMMIT;

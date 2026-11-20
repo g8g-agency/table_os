@@ -73,6 +73,14 @@ export interface OrderItemDetail {
 export interface OrderWithItems extends Order {
   items: OrderItemDetail[];
   total_amount: number;
+  bill_id?: string;
+  bill_number?: string;
+  subtotal_minor?: number;
+  tax_total_minor?: number;
+  discount_total_minor?: number;
+  grand_total_minor?: number;
+  amount_paid_minor?: number;
+  settlements?: any[];
 }
 
 export async function createOrder(payload: Omit<Order, 'id' | 'version_num' | 'created_at' | 'updated_at'>): Promise<Order> {
@@ -120,6 +128,7 @@ export async function getOrderById(tenantId: string, id: string): Promise<OrderW
   }
 
   const { data, error } = await query.maybeSingle();
+  let resultOrder: any = data;
 
   if (error || !data) {
     // Fallback: plain orders with tables join if snapshot relation fails
@@ -148,7 +157,7 @@ export async function getOrderById(tenantId: string, id: string): Promise<OrderW
     (plain as any).table_number = tableLabel;
     plain.items = fallbackItems;
     plain.total_amount = fallbackItems.reduce((sum: number, i: any) => sum + (i.line_total || 0), 0);
-    return plain as OrderWithItems;
+    resultOrder = plain;
   }
 
   if (data) {
@@ -191,7 +200,33 @@ export async function getOrderById(tenantId: string, id: string): Promise<OrderW
     delete data.snapshot;
   }
 
-  return data as OrderWithItems | null;
+  const result = resultOrder as any;
+  if (result) {
+    try {
+      const { data: billOrder } = await supabaseAdmin
+        .from('bill_orders')
+        .select('bills!inner(id, bill_number, subtotal_minor, tax_total_minor, discount_total_minor, grand_total_minor, amount_paid_minor, settlements(*))')
+        .eq('order_id', id)
+        .neq('bills.status', 'VOIDED')
+        .maybeSingle();
+
+      if (billOrder && (billOrder as any).bills) {
+        const b = (billOrder as any).bills;
+        result.bill_id = b.id;
+        result.bill_number = b.bill_number;
+        result.subtotal_minor = b.subtotal_minor;
+        result.tax_total_minor = b.tax_total_minor;
+        result.discount_total_minor = b.discount_total_minor;
+        result.grand_total_minor = b.grand_total_minor;
+        result.amount_paid_minor = b.amount_paid_minor;
+        result.settlements = b.settlements || [];
+      }
+    } catch (_) {
+      // Non-fatal if bill lookup fails
+    }
+  }
+
+  return result as OrderWithItems | null;
 }
 
 export async function getOrderByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<Order | null> {

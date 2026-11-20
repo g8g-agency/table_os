@@ -87,6 +87,28 @@ export async function getCategoryTree(tenantId: string): Promise<MenuCategoryTre
   return roots;
 }
 
+interface CacheEntry<T> {
+  expiresAt: number;
+  data: T;
+}
+
+const menuCache = new Map<string, CacheEntry<EffectiveMenuItem[]>>();
+const categoryCache = new Map<string, CacheEntry<MenuCategory[]>>();
+
+export function invalidateMenuCache(tenantId?: string): void {
+  if (tenantId) {
+    for (const k of menuCache.keys()) {
+      if (k.startsWith(`${tenantId}:`)) menuCache.delete(k);
+    }
+    for (const k of categoryCache.keys()) {
+      if (k.startsWith(`${tenantId}:`)) categoryCache.delete(k);
+    }
+  } else {
+    menuCache.clear();
+    categoryCache.clear();
+  }
+}
+
 export async function listCategories(
   tenantId: string,
   query: MenuCategoryListQuery
@@ -99,7 +121,14 @@ export async function getVisibleCategoriesForBranch(
   tenantId: string,
   branchId: string
 ): Promise<MenuCategory[]> {
-  return findVisibleCategoriesForBranch(tenantId, branchId);
+  const cacheKey = `${tenantId}:${branchId}`;
+  const cached = categoryCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+  const result = await findVisibleCategoriesForBranch(tenantId, branchId);
+  categoryCache.set(cacheKey, { expiresAt: Date.now() + 60000, data: result });
+  return result;
 }
 
 export async function createMenuCategory(
@@ -374,6 +403,15 @@ export async function getEffectiveMenuForBranch(
   tenantId: string,
   query: BranchMenuQuery
 ): Promise<EffectiveMenuItem[]> {
+  const isDefaultQuery = !query.category_id && !query.search && !query.include_unavailable;
+  const cacheKey = `${tenantId}:${query.branch_id}`;
+  if (isDefaultQuery) {
+    const cached = menuCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+  }
+
   // 1. Load all items for the tenant
   const { data: items } = await findItemsByTenant(tenantId, {
     category_id: query.category_id,
@@ -473,11 +511,12 @@ export async function getEffectiveMenuForBranch(
   }
 
   // Filter by availability if needed
-  if (!query.include_unavailable) {
-    return result.filter((i) => i.is_available);
+  const finalResult = !query.include_unavailable ? result.filter((i) => i.is_available) : result;
+  if (isDefaultQuery) {
+    menuCache.set(cacheKey, { expiresAt: Date.now() + 60000, data: finalResult });
   }
 
-  return result;
+  return finalResult;
 }
 
 // ─── Modifier Group/Option Service ────────────────────────────
